@@ -1,0 +1,233 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "MLflow",
+  "projectDescription": "Open-source platform for managing the end-to-end machine learning lifecycle with experiment tracking, model versioning, LLM observability, and deployment.",
+  "theme": "aspen",
+  "primaryColor": "#196d97",
+  "lightColor": "#e0eff2",
+  "darkColor": "#6b6a6a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/tracking",
+              "concepts/models",
+              "concepts/experiments",
+              "concepts/runs",
+              "concepts/artifacts"
+            ]
+          },
+          {
+            "group": "LLMs & GenAI",
+            "pages": [
+              "genai/overview",
+              "genai/tracing",
+              "genai/evaluation",
+              "genai/prompt-management",
+              "genai/agents"
+            ]
+          },
+          {
+            "group": "Traditional ML",
+            "pages": [
+              "ml/tracking",
+              "ml/model-registry",
+              "ml/autologging",
+              "ml/metrics"
+            ]
+          },
+          {
+            "group": "Model Development",
+            "pages": [
+              "models/overview",
+              "models/flavors",
+              "models/custom-models",
+              "models/signatures",
+              "models/dependencies"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/local",
+              "deployment/docker",
+              "deployment/kubernetes",
+              "deployment/cloud-providers"
+            ]
+          },
+          {
+            "group": "Server & UI",
+            "pages": [
+              "server/setup",
+              "server/configuration",
+              "server/authentication",
+              "server/database"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/overview",
+              "integrations/langchain",
+              "integrations/llama-index",
+              "integrations/openai",
+              "integrations/pytorch",
+              "integrations/tensorflow",
+              "integrations/scikit-learn",
+              "integrations/huggingface"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Python API",
+            "pages": [
+              "api/tracking-api",
+              "api/model-api",
+              "api/client",
+              "api/mlflow-module"
+            ]
+          },
+          {
+            "group": "GenAI APIs",
+            "pages": [
+              "api/genai/tracing",
+              "api/genai/evaluation",
+              "api/genai/prompts"
+            ]
+          },
+          {
+            "group": "Model Flavors",
+            "pages": [
+              "api/flavors/sklearn",
+              "api/flavors/pytorch",
+              "api/flavors/tensorflow",
+              "api/flavors/keras",
+              "api/flavors/xgboost",
+              "api/flavors/lightgbm",
+              "api/flavors/pyfunc"
+            ]
+          },
+          {
+            "group": "LLM Integrations",
+            "pages": [
+              "api/llm/openai",
+              "api/llm/langchain",
+              "api/llm/llama-index",
+              "api/llm/anthropic",
+              "api/llm/bedrock"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "api/cli/server",
+              "api/cli/experiments",
+              "api/cli/runs",
+              "api/cli/models"
+            ]
+          },
+          {
+            "group": "REST API",
+            "pages": [
+              "api/rest/overview",
+              "api/rest/experiments",
+              "api/rest/runs",
+              "api/rest/model-registry"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Tutorials",
+            "pages": [
+              "guides/first-experiment",
+              "guides/hyperparameter-tuning",
+              "guides/model-comparison",
+              "guides/production-deployment"
+            ]
+          },
+          {
+            "group": "LLM Guides",
+            "pages": [
+              "guides/llm/tracing-quickstart",
+              "guides/llm/evaluate-llm-apps",
+              "guides/llm/agent-monitoring",
+              "guides/llm/prompt-engineering"
+            ]
+          },
+          {
+            "group": "Best Practices",
+            "pages": [
+              "guides/best-practices/experiment-organization",
+              "guides/best-practices/model-versioning",
+              "guides/best-practices/production-tracking",
+              "guides/best-practices/team-collaboration"
+            ]
+          },
+          {
+            "group": "Migration Guides",
+            "pages": [
+              "guides/migration/mlflow-2-to-3",
+              "guides/migration/other-platforms"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Experiment tracking with parameters, metrics, and artifacts",
+    "Model registry for version control and lifecycle management",
+    "LLM tracing and observability for GenAI applications",
+    "Automated evaluation for models and LLM applications",
+    "Model deployment to various platforms (Docker, Kubernetes, cloud)",
+    "Native integrations with 50+ ML frameworks and libraries",
+    "Prompt management and versioning",
+    "Multi-language support (Python, R, Java, TypeScript)"
+  ],
+  "publicApiSurface": [
+    "mlflow.start_run",
+    "mlflow.log_param",
+    "mlflow.log_metric",
+    "mlflow.log_artifact",
+    "mlflow.log_model",
+    "mlflow.set_experiment",
+    "mlflow.autolog",
+    "mlflow.evaluate",
+    "mlflow.trace",
+    "mlflow.openai.autolog",
+    "mlflow.langchain.autolog",
+    "mlflow.llama_index.autolog",
+    "mlflow.MlflowClient",
+    "mlflow.pyfunc.log_model",
+    "mlflow.sklearn.log_model",
+    "mlflow.pytorch.log_model",
+    "mlflow.tensorflow.log_model",
+    "mlflow.genai.evaluate",
+    "mlflow.models.predict",
+    "mlflow server",
+    "mlflow experiments",
+    "mlflow runs",
+    "mlflow models"
+  ]
+}
