@@ -1,0 +1,489 @@
+---
+title: MLflow Module
+description: Top-level mlflow module exports and utilities
+---
+
+The `mlflow` module is the main entry point for MLflow functionality. It provides a fluent API for tracking experiments, logging models, and managing the ML lifecycle.
+
+## Module Overview
+
+MLflow organizes functionality into several key areas:
+
+- **Tracking**: Log parameters, metrics, and artifacts
+- **Models**: Save and load models in various formats
+- **Registry**: Version and manage models in production
+- **Projects**: Package and reproduce ML code
+- **Tracing**: Track LLM and GenAI application execution
+
+## Configuration
+
+### set_tracking_uri
+
+<ParamField path="uri" type="str" required>
+  URI of the tracking server. Examples:
+  - Local filesystem: `file:///path/to/mlruns`
+  - HTTP server: `http://localhost:5000`
+  - Databricks: `databricks`
+</ParamField>
+
+Set the tracking server URI for all MLflow operations.
+
+```python
+import mlflow
+
+# Use local filesystem
+mlflow.set_tracking_uri("file:///tmp/mlruns")
+
+# Use remote server
+mlflow.set_tracking_uri("http://localhost:5000")
+
+# Use Databricks
+mlflow.set_tracking_uri("databricks")
+```
+
+### get_tracking_uri
+
+<ResponseField name="return" type="str">
+  The current tracking URI.
+</ResponseField>
+
+Get the current tracking server URI.
+
+```python
+import mlflow
+
+uri = mlflow.get_tracking_uri()
+print(f"Tracking URI: {uri}")
+```
+
+### set_registry_uri
+
+<ParamField path="uri" type="str" required>
+  URI of the model registry server.
+</ParamField>
+
+Set the model registry server URI.
+
+```python
+import mlflow
+
+# Use Unity Catalog
+mlflow.set_registry_uri("databricks-uc")
+
+# Use workspace registry
+mlflow.set_registry_uri("databricks")
+```
+
+### get_registry_uri
+
+<ResponseField name="return" type="str">
+  The current registry URI.
+</ResponseField>
+
+```python
+import mlflow
+
+uri = mlflow.get_registry_uri()
+print(f"Registry URI: {uri}")
+```
+
+## Autologging
+
+### autolog
+
+<ParamField path="log_models" type="bool" default="True">
+  Whether to log models.
+</ParamField>
+
+<ParamField path="log_datasets" type="bool" default="True">
+  Whether to log dataset information.
+</ParamField>
+
+<ParamField path="disable" type="bool" default="False">
+  If True, disables autologging.
+</ParamField>
+
+<ParamField path="exclusive" type="bool" default="False">
+  If True, autologging will be exclusive to this integration.
+</ParamField>
+
+<ParamField path="disable_for_unsupported_versions" type="bool" default="False">
+  If True, disables autologging for unsupported library versions.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If True, suppresses autologging warnings.
+</ParamField>
+
+Enable automatic logging for supported ML libraries.
+
+```python
+import mlflow
+import sklearn
+from sklearn.ensemble import RandomForestClassifier
+
+# Enable autologging
+mlflow.autolog()
+
+# Train a model - metrics and model are logged automatically
+with mlflow.start_run():
+    clf = RandomForestClassifier(n_estimators=10)
+    clf.fit(X_train, y_train)
+    score = clf.score(X_test, y_test)
+```
+
+### Framework-Specific Autologging
+
+```python
+import mlflow
+
+# Scikit-learn
+mlflow.sklearn.autolog()
+
+# PyTorch
+mlflow.pytorch.autolog()
+
+# TensorFlow/Keras
+mlflow.tensorflow.autolog()
+
+# XGBoost
+mlflow.xgboost.autolog()
+
+# LightGBM
+mlflow.lightgbm.autolog()
+
+# Transformers
+mlflow.transformers.autolog()
+```
+
+## Model Flavors
+
+MLflow provides built-in support for numerous ML frameworks:
+
+### Traditional ML
+
+```python
+import mlflow.sklearn
+import mlflow.xgboost
+import mlflow.lightgbm
+import mlflow.catboost
+import mlflow.h2o
+import mlflow.statsmodels
+import mlflow.prophet
+```
+
+### Deep Learning
+
+```python
+import mlflow.pytorch
+import mlflow.tensorflow
+import mlflow.keras
+import mlflow.onnx
+import mlflow.paddle
+```
+
+### LLM & GenAI
+
+```python
+import mlflow.openai
+import mlflow.anthropic
+import mlflow.transformers
+import mlflow.langchain
+import mlflow.llama_index
+import mlflow.dspy
+import mlflow.mistral
+import mlflow.gemini
+import mlflow.bedrock
+```
+
+### Agent Frameworks
+
+```python
+import mlflow.autogen
+import mlflow.crewai
+import mlflow.pydantic_ai
+import mlflow.semantic_kernel
+```
+
+## System Metrics
+
+### enable_system_metrics_logging
+
+Enable automatic logging of system metrics (CPU, GPU, memory, disk, network).
+
+```python
+import mlflow
+
+mlflow.enable_system_metrics_logging()
+
+with mlflow.start_run():
+    # System metrics are logged automatically
+    train_model()
+```
+
+### disable_system_metrics_logging
+
+Disable automatic logging of system metrics.
+
+```python
+import mlflow
+
+mlflow.disable_system_metrics_logging()
+```
+
+### set_system_metrics_sampling_interval
+
+<ParamField path="interval" type="int" required>
+  Sampling interval in seconds.
+</ParamField>
+
+```python
+import mlflow
+
+# Sample system metrics every 5 seconds
+mlflow.set_system_metrics_sampling_interval(5)
+```
+
+### set_system_metrics_samples_before_logging
+
+<ParamField path="samples" type="int" required>
+  Number of samples to collect before logging.
+</ParamField>
+
+```python
+import mlflow
+
+# Log system metrics every 10 samples
+mlflow.set_system_metrics_samples_before_logging(10)
+```
+
+## Active Run Context
+
+### active_run
+
+<ResponseField name="return" type="ActiveRun | None">
+  The currently active run, or None if no run is active.
+</ResponseField>
+
+Get the currently active run without starting a new one.
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    run = mlflow.active_run()
+    print(f"Active Run ID: {run.info.run_id}")
+    mlflow.log_param("param1", 5)
+
+# Outside context, returns None
+run = mlflow.active_run()
+print(run)  # None
+```
+
+### last_active_run
+
+<ResponseField name="return" type="Run | None">
+  The last active run in the current thread, or None.
+</ResponseField>
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    mlflow.log_param("alpha", 0.5)
+
+# After run ends, get the last active run
+last_run = mlflow.last_active_run()
+print(f"Last Run ID: {last_run.info.run_id}")
+```
+
+## Utilities
+
+### login
+
+<ParamField path="backend" type="str | None" default="None">
+  Backend to authenticate with (e.g., "databricks").
+</ParamField>
+
+<ParamField path="interactive" type="bool" default="True">
+  Whether to prompt for credentials interactively.
+</ParamField>
+
+Authenticate with MLflow tracking or registry server.
+
+```python
+import mlflow
+
+# Interactive login
+mlflow.login()
+
+# Non-interactive with environment variables
+import os
+os.environ["MLFLOW_TRACKING_TOKEN"] = "your-token"
+mlflow.login(interactive=False)
+```
+
+### doctor
+
+<ParamField path="mask_envs" type="bool" default="True">
+  Whether to mask sensitive environment variables in output.
+</ParamField>
+
+Run diagnostics on the MLflow environment.
+
+```python
+import mlflow
+
+# Print environment diagnostics
+mlflow.doctor()
+```
+
+## Data Structures
+
+### ActiveRun
+
+Wrapper around `Run` that enables Python `with` syntax.
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    # run is an ActiveRun instance
+    print(f"Run ID: {run.info.run_id}")
+    print(f"Experiment ID: {run.info.experiment_id}")
+    print(f"Status: {run.info.status}")
+```
+
+### Image
+
+Class for handling image data in MLflow.
+
+```python
+from mlflow.tracking.multimedia import Image
+import numpy as np
+
+# Create from numpy array
+img_array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+image = Image(img_array)
+
+# Log image
+import mlflow
+with mlflow.start_run():
+    mlflow.log_image(image, "sample_image.png")
+```
+
+## Environment Variables
+
+MLflow uses environment variables for configuration:
+
+```python
+import os
+
+# Set tracking URI
+os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5000"
+
+# Set experiment name
+os.environ["MLFLOW_EXPERIMENT_NAME"] = "my-experiment"
+
+# Set experiment ID
+os.environ["MLFLOW_EXPERIMENT_ID"] = "1"
+
+# Enable async logging
+os.environ["MLFLOW_ENABLE_ASYNC_LOGGING"] = "true"
+
+# Enable system metrics
+os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+
+# Set artifacts destination
+os.environ["MLFLOW_ARTIFACT_URI"] = "s3://my-bucket/artifacts"
+```
+
+## Exception Handling
+
+### MlflowException
+
+Base exception class for MLflow errors.
+
+```python
+import mlflow
+from mlflow.exceptions import MlflowException
+
+try:
+    with mlflow.start_run():
+        mlflow.log_param("param" * 100, "value")  # Param name too long
+except MlflowException as e:
+    print(f"Error: {e}")
+    print(f"Error code: {e.error_code}")
+```
+
+## Version Information
+
+```python
+import mlflow
+
+# Get MLflow version
+print(f"MLflow version: {mlflow.__version__}")
+```
+
+## Complete Example
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from mlflow.models import infer_signature
+
+# Configure MLflow
+mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_experiment("iris-classification")
+
+# Enable autologging
+mlflow.sklearn.autolog()
+
+# Load data
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+# Train and log model
+with mlflow.start_run(run_name="random-forest-baseline") as run:
+    # Set tags
+    mlflow.set_tags({
+        "model_type": "classifier",
+        "framework": "scikit-learn",
+        "dataset": "iris"
+    })
+    
+    # Train model
+    clf = RandomForestClassifier(n_estimators=10, random_state=42)
+    clf.fit(X_train, y_train)
+    
+    # Make predictions
+    predictions = clf.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+    
+    # Log additional metrics
+    mlflow.log_metric("test_accuracy", accuracy)
+    
+    # Infer and log signature
+    signature = infer_signature(X_train, predictions)
+    
+    # Log model
+    model_info = mlflow.sklearn.log_model(
+        clf,
+        "model",
+        signature=signature,
+        input_example=X_train[:5]
+    )
+    
+    print(f"Run ID: {run.info.run_id}")
+    print(f"Model URI: {model_info.model_uri}")
+    print(f"Accuracy: {accuracy}")
+
+# Load and use the model
+loaded_model = mlflow.sklearn.load_model(model_info.model_uri)
+predictions = loaded_model.predict(X_test)
+print(f"Loaded model predictions: {predictions[:5]}")
+```

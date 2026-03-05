@@ -1,0 +1,646 @@
+---
+title: MlflowClient
+description: Low-level client API for programmatic access to MLflow tracking and model registry
+---
+
+The `MlflowClient` provides a lower-level API for interacting with MLflow's tracking and model registry services. Unlike the fluent API, it doesn't manage active run state automatically.
+
+## Initialization
+
+### MlflowClient
+
+<ParamField path="tracking_uri" type="str | None" default="None">
+  Address of the tracking server. If not provided, uses the URI from `mlflow.set_tracking_uri()` or defaults.
+</ParamField>
+
+<ParamField path="registry_uri" type="str | None" default="None">
+  Address of the model registry server. If not provided, uses the URI from `mlflow.set_registry_uri()` or defaults to tracking_uri.
+</ParamField>
+
+<ParamField path="workspace_store_uri" type="str | None" default="None">
+  Address of the workspace provider backend. Defaults to tracking URI when unspecified.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+
+# Create client with default URIs
+client = MlflowClient()
+
+# Create client with custom tracking URI
+client = MlflowClient(tracking_uri="http://localhost:5000")
+
+# Create client with separate registry URI
+client = MlflowClient(
+    tracking_uri="http://localhost:5000",
+    registry_uri="databricks-uc"
+)
+```
+
+## Run Management
+
+### create_run
+
+<ParamField path="experiment_id" type="str" required>
+  ID of the experiment to create the run in.
+</ParamField>
+
+<ParamField path="start_time" type="int | None" default="None">
+  Start time in milliseconds. If not provided, uses current timestamp.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Dictionary of tags to set on the run.
+</ParamField>
+
+<ParamField path="run_name" type="str | None" default="None">
+  Name for the run.
+</ParamField>
+
+<ResponseField name="return" type="Run">
+  The created Run object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+# Create a run
+run = client.create_run(
+    experiment_id="0",
+    tags={"team": "ml-platform"},
+    run_name="baseline-run"
+)
+
+print(f"Run ID: {run.info.run_id}")
+print(f"Status: {run.info.status}")
+```
+
+### get_run
+
+<ParamField path="run_id" type="str" required>
+  Unique identifier for the run.
+</ParamField>
+
+<ResponseField name="return" type="Run">
+  Run object containing metadata, parameters, metrics, and tags.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+run = client.get_run("abc123")
+
+print(f"Parameters: {run.data.params}")
+print(f"Metrics: {run.data.metrics}")
+print(f"Tags: {run.data.tags}")
+```
+
+### get_parent_run
+
+<ParamField path="run_id" type="str" required>
+  Unique identifier for the child run.
+</ParamField>
+
+<ResponseField name="return" type="Run | None">
+  Parent Run object if it exists, otherwise None.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+# Get parent run of a nested run
+parent_run = client.get_parent_run("child_run_id")
+if parent_run:
+    print(f"Parent Run ID: {parent_run.info.run_id}")
+```
+
+### search_runs
+
+<ParamField path="experiment_ids" type="list[str]" required>
+  List of experiment IDs to search.
+</ParamField>
+
+<ParamField path="filter_string" type="str" default="''">
+  SQL-like filter query.
+</ParamField>
+
+<ParamField path="run_view_type" type="int" default="1">
+  View type: ACTIVE_ONLY (1), DELETED_ONLY (2), or ALL (3).
+</ParamField>
+
+<ParamField path="max_results" type="int" default="1000">
+  Maximum number of runs to return.
+</ParamField>
+
+<ParamField path="order_by" type="list[str] | None" default="None">
+  List of order by clauses.
+</ParamField>
+
+<ParamField path="page_token" type="str | None" default="None">
+  Token for pagination.
+</ParamField>
+
+<ResponseField name="return" type="PagedList[Run]">
+  Paginated list of Run objects.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+# Search runs with filter
+runs = client.search_runs(
+    experiment_ids=["0", "1"],
+    filter_string="metrics.accuracy > 0.9",
+    order_by=["metrics.accuracy DESC"],
+    max_results=10
+)
+
+for run in runs:
+    print(f"{run.info.run_id}: {run.data.metrics.get('accuracy')}")
+```
+
+### set_terminated
+
+<ParamField path="run_id" type="str" required>
+  ID of the run to terminate.
+</ParamField>
+
+<ParamField path="status" type="str | None" default="None">
+  Final status: "FINISHED", "FAILED", or "KILLED".
+</ParamField>
+
+<ParamField path="end_time" type="int | None" default="None">
+  End time in milliseconds. Defaults to current time.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+from mlflow.entities import RunStatus
+
+client = MlflowClient()
+
+# Terminate run
+client.set_terminated(
+    run_id="abc123",
+    status=RunStatus.to_string(RunStatus.FINISHED)
+)
+```
+
+## Logging Operations
+
+### log_param
+
+<ParamField path="run_id" type="str" required>
+  ID of the run.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  Parameter name.
+</ParamField>
+
+<ParamField path="value" type="Any" required>
+  Parameter value.
+</ParamField>
+
+<ParamField path="synchronous" type="bool" default="True">
+  Whether to block until logged.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+run = client.create_run(experiment_id="0")
+
+client.log_param(run.info.run_id, "learning_rate", 0.01)
+client.log_param(run.info.run_id, "max_depth", 5)
+```
+
+### log_batch
+
+<ParamField path="run_id" type="str" required>
+  ID of the run.
+</ParamField>
+
+<ParamField path="metrics" type="list[Metric] | None" default="None">
+  List of Metric objects to log.
+</ParamField>
+
+<ParamField path="params" type="list[Param] | None" default="None">
+  List of Param objects to log.
+</ParamField>
+
+<ParamField path="tags" type="list[RunTag] | None" default="None">
+  List of RunTag objects to log.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+from mlflow.entities import Metric, Param
+import time
+
+client = MlflowClient()
+run = client.create_run(experiment_id="0")
+
+timestamp = int(time.time() * 1000)
+
+client.log_batch(
+    run_id=run.info.run_id,
+    metrics=[
+        Metric("accuracy", 0.95, timestamp, 0),
+        Metric("loss", 0.05, timestamp, 0)
+    ],
+    params=[
+        Param("learning_rate", "0.01"),
+        Param("batch_size", "32")
+    ]
+)
+```
+
+### log_metric
+
+<ParamField path="run_id" type="str" required>
+  ID of the run.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  Metric name.
+</ParamField>
+
+<ParamField path="value" type="float" required>
+  Metric value.
+</ParamField>
+
+<ParamField path="timestamp" type="int | None" default="None">
+  Timestamp in milliseconds.
+</ParamField>
+
+<ParamField path="step" type="int" default="0">
+  Metric step.
+</ParamField>
+
+<ParamField path="synchronous" type="bool" default="True">
+  Whether to block until logged.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+run = client.create_run(experiment_id="0")
+
+# Log metrics over steps
+for epoch in range(10):
+    client.log_metric(
+        run.info.run_id,
+        "train_loss",
+        0.5 / (epoch + 1),
+        step=epoch
+    )
+```
+
+### get_metric_history
+
+<ParamField path="run_id" type="str" required>
+  ID of the run.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  Metric name.
+</ParamField>
+
+<ResponseField name="return" type="list[Metric]">
+  List of all logged values for the metric.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+history = client.get_metric_history("run_id", "accuracy")
+
+for metric in history:
+    print(f"Step {metric.step}: {metric.value}")
+```
+
+### log_artifact
+
+<ParamField path="run_id" type="str" required>
+  ID of the run.
+</ParamField>
+
+<ParamField path="local_path" type="str" required>
+  Path to the file to log.
+</ParamField>
+
+<ParamField path="artifact_path" type="str | None" default="None">
+  Subdirectory in the run's artifact directory.
+</ParamField>
+
+```python
+from mlflow import MlflowClient
+import json
+
+client = MlflowClient()
+run = client.create_run(experiment_id="0")
+
+# Create and log artifact
+config = {"model": "classifier", "version": "1.0"}
+with open("config.json", "w") as f:
+    json.dump(config, f)
+
+client.log_artifact(run.info.run_id, "config.json")
+```
+
+## Experiment Management
+
+### create_experiment
+
+<ParamField path="name" type="str" required>
+  Experiment name. Must be unique.
+</ParamField>
+
+<ParamField path="artifact_location" type="str | None" default="None">
+  Location to store artifacts.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Tags to set on the experiment.
+</ParamField>
+
+<ResponseField name="return" type="str">
+  The experiment ID.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+exp_id = client.create_experiment(
+    name="my-experiment",
+    tags={"team": "ml-platform"}
+)
+
+print(f"Created experiment: {exp_id}")
+```
+
+### get_experiment
+
+<ParamField path="experiment_id" type="str" required>
+  ID of the experiment.
+</ParamField>
+
+<ResponseField name="return" type="Experiment">
+  Experiment object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+experiment = client.get_experiment("0")
+
+print(f"Name: {experiment.name}")
+print(f"Artifact Location: {experiment.artifact_location}")
+```
+
+### get_experiment_by_name
+
+<ParamField path="name" type="str" required>
+  Name of the experiment.
+</ParamField>
+
+<ResponseField name="return" type="Experiment | None">
+  Experiment object if found, None otherwise.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+experiment = client.get_experiment_by_name("my-experiment")
+
+if experiment:
+    print(f"Experiment ID: {experiment.experiment_id}")
+```
+
+### search_experiments
+
+<ParamField path="view_type" type="int" default="1">
+  View type for experiments.
+</ParamField>
+
+<ParamField path="max_results" type="int" default="1000">
+  Maximum number of experiments to return.
+</ParamField>
+
+<ParamField path="filter_string" type="str | None" default="None">
+  Filter query string.
+</ParamField>
+
+<ParamField path="order_by" type="list[str] | None" default="None">
+  List of order by clauses.
+</ParamField>
+
+<ResponseField name="return" type="PagedList[Experiment]">
+  Paginated list of Experiment objects.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+experiments = client.search_experiments(
+    filter_string="tags.team = 'ml-platform'"
+)
+
+for exp in experiments:
+    print(f"{exp.name}: {exp.experiment_id}")
+```
+
+## Model Registry
+
+### create_registered_model
+
+<ParamField path="name" type="str" required>
+  Name of the registered model. Must be unique.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Tags to set on the registered model.
+</ParamField>
+
+<ParamField path="description" type="str | None" default="None">
+  Description of the registered model.
+</ParamField>
+
+<ResponseField name="return" type="RegisteredModel">
+  The created RegisteredModel object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+registered_model = client.create_registered_model(
+    name="my-model",
+    tags={"task": "classification"},
+    description="Production classification model"
+)
+
+print(f"Registered model: {registered_model.name}")
+```
+
+### create_model_version
+
+<ParamField path="name" type="str" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField path="source" type="str" required>
+  URI of the model source (e.g., run artifact path).
+</ParamField>
+
+<ParamField path="run_id" type="str | None" default="None">
+  MLflow run ID that generated the model.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Tags to set on the model version.
+</ParamField>
+
+<ParamField path="description" type="str | None" default="None">
+  Description of the model version.
+</ParamField>
+
+<ResponseField name="return" type="ModelVersion">
+  The created ModelVersion object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+model_version = client.create_model_version(
+    name="my-model",
+    source="runs:/abc123/model",
+    run_id="abc123",
+    description="Version trained on new data"
+)
+
+print(f"Model version: {model_version.version}")
+```
+
+### get_model_version
+
+<ParamField path="name" type="str" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField path="version" type="str" required>
+  Version number.
+</ParamField>
+
+<ResponseField name="return" type="ModelVersion">
+  ModelVersion object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+model_version = client.get_model_version("my-model", "1")
+
+print(f"Status: {model_version.status}")
+print(f"Source: {model_version.source}")
+```
+
+### search_model_versions
+
+<ParamField path="filter_string" type="str | None" default="None">
+  Filter query string.
+</ParamField>
+
+<ParamField path="max_results" type="int" default="10000">
+  Maximum number of versions to return.
+</ParamField>
+
+<ParamField path="order_by" type="list[str] | None" default="None">
+  List of order by clauses.
+</ParamField>
+
+<ResponseField name="return" type="PagedList[ModelVersion]">
+  Paginated list of ModelVersion objects.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+versions = client.search_model_versions(
+    filter_string="name='my-model'",
+    order_by=["version_number DESC"]
+)
+
+for version in versions:
+    print(f"Version {version.version}: {version.current_stage}")
+```
+
+## Workspace Management
+
+### create_workspace
+
+<ParamField path="name" type="str" required>
+  Workspace name (alphanumeric, hyphens, underscores only).
+</ParamField>
+
+<ParamField path="description" type="str | None" default="None">
+  Optional description of the workspace.
+</ParamField>
+
+<ParamField path="default_artifact_root" type="str | None" default="None">
+  Optional artifact root URI.
+</ParamField>
+
+<ResponseField name="return" type="Workspace">
+  The created Workspace object.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+workspace = client.create_workspace(
+    name="my-workspace",
+    description="Team workspace for ML experiments"
+)
+
+print(f"Workspace created: {workspace.name}")
+```
+
+### list_workspaces
+
+<ResponseField name="return" type="list[Workspace]">
+  List of workspaces available to the current user.
+</ResponseField>
+
+```python
+from mlflow import MlflowClient
+
+client = MlflowClient()
+workspaces = client.list_workspaces()
+
+for workspace in workspaces:
+    print(f"{workspace.name}: {workspace.workspace_id}")
+```

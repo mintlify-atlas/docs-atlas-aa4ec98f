@@ -1,0 +1,733 @@
+---
+title: Agent Monitoring
+description: Complete guide to monitoring, tracing, and evaluating LLM agents with MLflow
+---
+
+# Agent Monitoring and Evaluation
+
+MLflow provides specialized tools for monitoring and evaluating LLM agents - autonomous systems that use tools, make decisions, and execute multi-step workflows.
+
+## Why Agent Monitoring?
+
+Agents present unique challenges:
+
+- **Complex workflows**: Multi-step reasoning with tool calls
+- **Non-deterministic**: Agents make dynamic decisions
+- **Tool usage**: Tracking function/API calls and their results
+- **Multi-turn interactions**: Conversational state management
+- **Error propagation**: Failures in one step affect subsequent steps
+
+MLflow helps you:
+- **Trace** agent execution from start to finish
+- **Evaluate** tool usage correctness and efficiency  
+- **Monitor** performance and token usage
+- **Debug** complex agent workflows
+- **Optimize** agent behavior based on data
+
+## Quick Start
+
+### Trace an Agent
+
+```python
+import mlflow
+import openai
+from typing import Any, Dict
+
+mlflow.tracing.enable()
+
+@mlflow.trace(span_type="AGENT")
+def customer_support_agent(user_query: str) -> str:
+    """Agent with tool calling capabilities"""
+    client = openai.OpenAI()
+    
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_order_status",
+                "description": "Get the status of a customer order",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {"type": "string"}
+                    },
+                    "required": ["order_id"]
+                }
+            }
+        }
+    ]
+    
+    messages = [{"role": "user", "content": user_query}]
+    
+    # Agent reasoning
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        tools=tools
+    )
+    
+    # Handle tool calls
+    if response.choices[0].message.tool_calls:
+        for tool_call in response.choices[0].message.tool_calls:
+            result = execute_tool(tool_call)
+            
+            # Add tool result to conversation
+            messages.append({
+                "role": "tool",
+                "content": str(result),
+                "tool_call_id": tool_call.id
+            })
+        
+        # Get final response
+        final_response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        )
+        return final_response.choices[0].message.content
+    
+    return response.choices[0].message.content
+
+@mlflow.trace(span_type="TOOL")
+def execute_tool(tool_call: Any) -> Dict[str, Any]:
+    """Execute a tool and return results"""
+    if tool_call.function.name == "get_order_status":
+        import json
+        args = json.loads(tool_call.function.arguments)
+        return {"order_id": args["order_id"], "status": "shipped"}
+    return {}
+
+# Use the agent - automatically traced
+result = customer_support_agent("What's the status of order #12345?")
+
+# View the trace
+trace = mlflow.get_trace(mlflow.get_last_active_trace_id())
+print(trace.to_json(pretty=True))
+```
+
+## Agent Tracing Patterns
+
+### ReAct Pattern
+
+Reasoning and Acting pattern with tool usage:
+
+```python
+import mlflow
+import openai
+
+@mlflow.trace(span_type="AGENT")
+def react_agent(task: str, max_iterations: int = 5) -> str:
+    """ReAct agent: Reason → Act → Observe loop"""
+    client = openai.OpenAI()
+    conversation = []
+    
+    for i in range(max_iterations):
+        # Reasoning step
+        with mlflow.start_span("reasoning", span_type="CHAIN") as span:
+            span.set_inputs({"iteration": i, "task": task})
+            
+            thought = client.chat.completions.create(
+                model="gpt-4o",
+                messages=conversation + [{
+                    "role": "user",
+                    "content": f"Task: {task}\nWhat should we do next?"
+                }]
+            )
+            
+            reasoning = thought.choices[0].message.content
+            span.set_outputs({"reasoning": reasoning})
+        
+        # Action step
+        if "[SEARCH]" in reasoning:
+            query = extract_query(reasoning)
+            result = search_tool(query)
+            observation = f"Search result: {result}"
+        elif "[CALCULATE]" in reasoning:
+            expr = extract_expression(reasoning)
+            result = calculate_tool(expr)
+            observation = f"Calculation result: {result}"
+        elif "[FINAL]" in reasoning:
+            return extract_final_answer(reasoning)
+        else:
+            observation = "No action taken"
+        
+        conversation.append({"role": "assistant", "content": reasoning})
+        conversation.append({"role": "user", "content": observation})
+    
+    return "Task not completed within iteration limit"
+
+@mlflow.trace(span_type="TOOL")
+def search_tool(query: str) -> str:
+    """Search tool with tracing"""
+    # Your search implementation
+    return f"Results for {query}"
+
+@mlflow.trace(span_type="TOOL")
+def calculate_tool(expression: str) -> float:
+    """Calculator tool with tracing"""
+    return eval(expression)  # In production, use safe evaluation
+```
+
+### LangGraph Agent
+
+Tracing LangGraph agents:
+
+```python
+import mlflow
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated
+import operator
+
+mlflow.langchain.autolog()  # Enable LangChain autologging
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]
+    next_step: str
+
+def reasoning_node(state: AgentState) -> AgentState:
+    """Agent reasoning node"""
+    # Reasoning logic
+    return {"messages": [...], "next_step": "action"}
+
+def action_node(state: AgentState) -> AgentState:
+    """Agent action node"""
+    # Action execution
+    return {"messages": [...], "next_step": END}
+
+def should_continue(state: AgentState) -> str:
+    """Decide if agent should continue"""
+    return state["next_step"]
+
+# Build graph
+workflow = StateGraph(AgentState)
+workflow.add_node("reasoning", reasoning_node)
+workflow.add_node("action", action_node)
+workflow.add_conditional_edges(
+    "reasoning",
+    should_continue,
+    {"action": "action", END: END}
+)
+workflow.set_entry_point("reasoning")
+
+agent = workflow.compile()
+
+# Execute - automatically traced
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "Plan a trip to Paris"}],
+    "next_step": "reasoning"
+})
+```
+
+### Function Calling Agent
+
+```python
+import mlflow
+import openai
+import json
+from typing import List, Dict, Any, Callable
+
+class FunctionCallingAgent:
+    def __init__(self, model: str = "gpt-4o"):
+        self.client = openai.OpenAI()
+        self.model = model
+        self.tools: Dict[str, Callable] = {}
+        self.tool_schemas: List[Dict] = []
+    
+    def register_tool(self, name: str, func: Callable, schema: Dict):
+        """Register a tool with the agent"""
+        self.tools[name] = mlflow.trace(func, span_type="TOOL")
+        self.tool_schemas.append(schema)
+    
+    @mlflow.trace(span_type="AGENT")
+    def run(self, user_message: str, max_iterations: int = 5) -> str:
+        """Run the agent"""
+        messages = [{"role": "user", "content": user_message}]
+        
+        for iteration in range(max_iterations):
+            with mlflow.start_span(f"iteration_{iteration}") as span:
+                span.set_attribute("iteration", iteration)
+                
+                # Get LLM response
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tool_schemas
+                )
+                
+                message = response.choices[0].message
+                
+                # No tool calls - return final answer
+                if not message.tool_calls:
+                    return message.content
+                
+                # Execute tool calls
+                messages.append(message)
+                
+                for tool_call in message.tool_calls:
+                    func_name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+                    
+                    # Execute tool
+                    result = self.tools[func_name](**args)
+                    
+                    # Add result to conversation
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps(result),
+                        "tool_call_id": tool_call.id
+                    })
+        
+        return "Max iterations reached"
+
+# Create and use agent
+agent = FunctionCallingAgent()
+
+# Register tools
+agent.register_tool(
+    name="get_weather",
+    func=lambda location: {"temp": 72, "condition": "sunny"},
+    schema={
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get current weather",
+            "parameters": {
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"]
+            }
+        }
+    }
+)
+
+# Run agent
+result = agent.run("What's the weather in San Francisco?")
+```
+
+## Tool Call Tracking
+
+### Recording Tool Calls
+
+MLflow automatically captures tool calls in traces:
+
+```python
+import mlflow
+
+# After agent execution
+trace = mlflow.get_trace(trace_id)
+
+# Extract tool calls from trace
+from mlflow.genai.utils.trace_utils import extract_tools_called_from_trace
+
+tool_calls = extract_tools_called_from_trace(trace)
+
+for tool_call in tool_calls:
+    print(f"Tool: {tool_call['name']}")
+    print(f"Arguments: {tool_call['arguments']}")
+    print(f"Result: {tool_call['result']}")
+```
+
+### Setting Tool Information
+
+Explicitly set tool information on spans:
+
+```python
+from mlflow.tracing.utils import set_span_chat_tools
+
+with mlflow.start_span("agent_call") as span:
+    # Set available tools
+    set_span_chat_tools(span, [
+        {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "Search the web"
+            }
+        }
+    ])
+    
+    # Execute agent logic
+    result = agent.run()
+```
+
+## Agent Evaluation
+
+### Tool Call Correctness
+
+Evaluate if agent uses tools correctly:
+
+```python
+import mlflow
+import pandas as pd
+from mlflow.genai.scorers import ToolCallCorrectness
+
+# Prepare evaluation data with expected tool calls
+eval_data = pd.DataFrame([
+    {
+        "inputs": {"query": "What's the weather in SF?"},
+        "expectations": {
+            "tool_calls": [
+                {
+                    "name": "get_weather",
+                    "arguments": {"location": "San Francisco"}
+                }
+            ]
+        }
+    }
+])
+
+# Evaluate tool call correctness
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    predict_fn=my_agent,
+    scorers=[
+        ToolCallCorrectness(model="openai:/gpt-4o")
+    ]
+)
+
+print(f"Tool call correctness: {result.metrics['tool_call_correctness/pass_rate']}")
+```
+
+### Tool Call Efficiency
+
+Evaluate if agent uses minimal necessary tools:
+
+```python
+from mlflow.genai.scorers import ToolCallEfficiency
+
+# Evaluate if agent is efficient
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    predict_fn=my_agent,
+    scorers=[
+        ToolCallEfficiency(model="openai:/gpt-4o")
+    ]
+)
+
+print(f"Efficiency score: {result.metrics['tool_call_efficiency/mean']}")
+```
+
+### Agent-Specific Scorers
+
+```python
+from mlflow.genai.scorers import scorer
+from mlflow.entities import Trace
+
+@scorer
+def tool_retry_count(trace: Trace) -> dict:
+    """Count tool retries in agent execution"""
+    tool_calls = extract_tools_called_from_trace(trace)
+    
+    tool_names = [tc['name'] for tc in tool_calls]
+    retries = len(tool_names) - len(set(tool_names))
+    
+    return {
+        "retry_count": retries,
+        "unique_tools": len(set(tool_names)),
+        "total_tool_calls": len(tool_names)
+    }
+
+@scorer
+def agent_steps(trace: Trace) -> dict:
+    """Count reasoning steps in agent execution"""
+    # Count spans of specific types
+    reasoning_spans = [
+        s for s in trace.data.spans 
+        if s.span_type == "CHAIN"
+    ]
+    
+    return {
+        "reasoning_steps": len(reasoning_spans),
+        "total_duration_ms": trace.info.execution_duration
+    }
+```
+
+## Multi-turn Conversations
+
+### Tracking Sessions
+
+```python
+import mlflow
+
+@mlflow.trace
+def conversational_agent(message: str, session_id: str) -> str:
+    """Agent that maintains conversation state"""
+    # Update trace with session ID
+    mlflow.update_current_trace(
+        metadata={"mlflow.trace.session": session_id}
+    )
+    
+    # Load conversation history
+    history = load_history(session_id)
+    
+    # Agent logic
+    response = generate_response(message, history)
+    
+    # Save updated history
+    save_history(session_id, message, response)
+    
+    return response
+
+# Multi-turn conversation
+session_id = "session-123"
+conversational_agent("Hello", session_id)
+conversational_agent("What's the weather?", session_id)
+conversational_agent("Thanks!", session_id)
+
+# Search for session traces
+session_traces = mlflow.search_traces(
+    filter_string=f"metadata.`mlflow.trace.session` = '{session_id}'",
+    order_by=["timestamp ASC"]
+)
+```
+
+### Session-level Evaluation
+
+```python
+from mlflow.genai.scorers import (
+    ConversationCompleteness,
+    KnowledgeRetention,
+    UserFrustration
+)
+
+# Evaluate entire conversation sessions
+sessions = mlflow.search_sessions(
+    locations=["experiment_id"],
+    max_results=10
+)
+
+all_traces = [trace for session in sessions for trace in session]
+
+result = mlflow.genai.evaluate(
+    data=all_traces,
+    scorers=[
+        ConversationCompleteness(model="openai:/gpt-4o"),
+        KnowledgeRetention(model="openai:/gpt-4o"),
+        UserFrustration(model="openai:/gpt-4o")
+    ]
+)
+```
+
+### Simulated Conversations
+
+```python
+from mlflow.genai.simulators import ConversationSimulator
+from mlflow.genai.scorers import ConversationalSafety
+import openai
+
+def my_conversational_agent(input: list[dict], **context) -> dict:
+    """Agent following OpenAI conversation format"""
+    client = openai.OpenAI()
+    
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=input
+    )
+    return response
+
+# Create simulator with test scenarios
+simulator = ConversationSimulator(
+    test_cases=[
+        {
+            "goal": "Get help with MLflow installation",
+            "persona": "A beginner data scientist",
+            "context": {"user_level": "beginner"}
+        },
+        {
+            "goal": "Debug a production deployment issue",
+            "persona": "An experienced ML engineer",
+            "context": {"user_level": "expert"}
+        }
+    ],
+    max_turns=5
+)
+
+# Evaluate simulated conversations
+result = mlflow.genai.evaluate(
+    data=simulator,
+    predict_fn=my_conversational_agent,
+    scorers=[
+        ConversationalSafety(model="openai:/gpt-4o"),
+        UserFrustration(model="openai:/gpt-4o")
+    ]
+)
+```
+
+## Performance Monitoring
+
+### Token Usage Tracking
+
+```python
+import mlflow
+
+# After agent execution
+trace = mlflow.get_trace(trace_id)
+
+# Calculate total token usage
+total_prompt_tokens = 0
+total_completion_tokens = 0
+
+for span in trace.data.spans:
+    if span.span_type == "LLM":
+        prompt_tokens = span.attributes.get("mlflow.tokens.prompt", 0)
+        completion_tokens = span.attributes.get("mlflow.tokens.completion", 0)
+        
+        total_prompt_tokens += prompt_tokens
+        total_completion_tokens += completion_tokens
+
+print(f"Total prompt tokens: {total_prompt_tokens}")
+print(f"Total completion tokens: {total_completion_tokens}")
+print(f"Total tokens: {total_prompt_tokens + total_completion_tokens}")
+```
+
+### Latency Analysis
+
+```python
+from mlflow.genai.scorers import scorer
+from mlflow.entities import Trace
+
+@scorer
+def agent_latency_breakdown(trace: Trace) -> dict:
+    """Analyze latency by component"""
+    llm_time = sum(
+        span.duration for span in trace.data.spans
+        if span.span_type == "LLM"
+    )
+    
+    tool_time = sum(
+        span.duration for span in trace.data.spans
+        if span.span_type == "TOOL"
+    )
+    
+    total_time = trace.info.execution_duration
+    other_time = total_time - (llm_time + tool_time)
+    
+    return {
+        "llm_time_ms": llm_time,
+        "tool_time_ms": tool_time,
+        "other_time_ms": other_time,
+        "total_time_ms": total_time,
+        "llm_percentage": (llm_time / total_time * 100) if total_time > 0 else 0
+    }
+```
+
+### Cost Tracking
+
+```python
+@scorer
+def estimate_cost(trace: Trace) -> dict:
+    """Estimate API costs from trace"""
+    # Example pricing (adjust for your models)
+    PRICING = {
+        "gpt-4o": {"prompt": 0.005 / 1000, "completion": 0.015 / 1000},
+        "gpt-4o-mini": {"prompt": 0.0015 / 1000, "completion": 0.002 / 1000}
+    }
+    
+    total_cost = 0
+    
+    for span in trace.data.spans:
+        if span.span_type == "LLM":
+            model = span.attributes.get("mlflow.model", "gpt-4o-mini")
+            prompt_tokens = span.attributes.get("mlflow.tokens.prompt", 0)
+            completion_tokens = span.attributes.get("mlflow.tokens.completion", 0)
+            
+            if model in PRICING:
+                cost = (
+                    prompt_tokens * PRICING[model]["prompt"] +
+                    completion_tokens * PRICING[model]["completion"]
+                )
+                total_cost += cost
+    
+    return {
+        "estimated_cost_usd": total_cost,
+        "cost_per_token": total_cost / max(sum_tokens, 1)
+    }
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Appropriate Span Types">
+    Tag spans with correct types for better visualization:
+    ```python
+    @mlflow.trace(span_type="AGENT")
+    def agent_main(): ...
+    
+    @mlflow.trace(span_type="TOOL")
+    def call_tool(): ...
+    
+    @mlflow.trace(span_type="CHAIN")
+    def reasoning_step(): ...
+    ```
+  </Accordion>
+  
+  <Accordion title="Track Session Context">
+    Include session IDs for multi-turn conversations:
+    ```python
+    mlflow.update_current_trace(
+        metadata={"mlflow.trace.session": session_id}
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor Tool Usage">
+    Track which tools are used and how often:
+    ```python
+    # Add tool usage to span attributes
+    span.set_attribute("tools_called", json.dumps(tool_names))
+    span.set_attribute("tool_count", len(tool_names))
+    ```
+  </Accordion>
+  
+  <Accordion title="Evaluate Regularly">
+    Set up automated evaluation of agent behavior:
+    ```python
+    # Daily evaluation job
+    traces = mlflow.search_traces(
+        filter_string="timestamp > '2024-01-01'",
+        max_results=100
+    )
+    
+    result = mlflow.genai.evaluate(
+        data=traces,
+        scorers=[ToolCallCorrectness(), ToolCallEfficiency()]
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Missing Tool Calls
+
+```python
+# Verify tool calls are captured
+trace = mlflow.get_trace(trace_id)
+tool_calls = extract_tools_called_from_trace(trace)
+
+if not tool_calls:
+    print("No tool calls found. Check:")
+    print("1. Tracing is enabled")
+    print("2. Tool calls are properly instrumented")
+    print("3. OpenAI/Anthropic autologging is working")
+```
+
+### High Token Usage
+
+```python
+# Analyze token usage per span
+for span in trace.data.spans:
+    if span.span_type == "LLM":
+        tokens = span.attributes.get("mlflow.tokens.total", 0)
+        print(f"{span.name}: {tokens} tokens")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation" icon="chart-bar" href="/genai/evaluation">
+    Deep dive into agent evaluation
+  </Card>
+  <Card title="Tracing" icon="route" href="/genai/tracing">
+    Master advanced tracing techniques
+  </Card>
+</CardGroup>

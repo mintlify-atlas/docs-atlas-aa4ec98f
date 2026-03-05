@@ -1,0 +1,308 @@
+---
+title: GenAI Overview
+description: Comprehensive overview of MLflow's GenAI capabilities for building, evaluating, and deploying LLM applications
+---
+
+# MLflow GenAI Overview
+
+MLflow provides a comprehensive platform for building, evaluating, and deploying generative AI applications. The GenAI module offers tools for tracing LLM calls, evaluating model outputs, managing prompts, and monitoring agents.
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Tracing & Observability" icon="chart-line" href="/genai/tracing">
+    Capture detailed execution traces of your LLM applications with automatic instrumentation
+  </Card>
+  <Card title="Evaluation" icon="chart-bar" href="/genai/evaluation">
+    Evaluate LLM outputs with built-in and custom scorers for quality, safety, and correctness
+  </Card>
+  <Card title="Prompt Management" icon="file-lines" href="/genai/prompt-management">
+    Version control, optimize, and manage prompts with the Prompt Registry
+  </Card>
+  <Card title="Agent Monitoring" icon="robot" href="/genai/agents">
+    Monitor and evaluate multi-step agent workflows with specialized tooling
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+### Installation
+
+```bash
+pip install mlflow
+```
+
+### Basic Tracing Example
+
+Trace your LLM calls to capture inputs, outputs, and execution metadata:
+
+```python
+import mlflow
+import openai
+
+# Enable tracing
+mlflow.tracing.enable()
+
+@mlflow.trace
+def ask_question(question: str) -> str:
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": question}]
+    )
+    return response.choices[0].message.content
+
+# Call your function - it will be automatically traced
+answer = ask_question("What is MLflow?")
+
+# Access the trace
+trace_id = mlflow.get_last_active_trace_id()
+trace = mlflow.get_trace(trace_id)
+print(trace.to_json(pretty=True))
+```
+
+### Basic Evaluation Example
+
+Evaluate your LLM application with built-in scorers:
+
+```python
+import mlflow
+import pandas as pd
+from mlflow.genai.scorers import Correctness, Safety
+
+# Prepare evaluation data
+eval_data = pd.DataFrame([
+    {
+        "inputs": {"question": "What is MLflow?"},
+        "outputs": "MLflow is an open-source platform for ML lifecycle management",
+        "expectations": "MLflow is an open-source platform"
+    },
+    {
+        "inputs": {"question": "What is Spark?"},
+        "outputs": "Apache Spark is a unified analytics engine",
+        "expectations": "Spark is a data processing engine"
+    }
+])
+
+# Evaluate with multiple scorers
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[
+        Correctness(model="openai:/gpt-4o"),
+        Safety(model="openai:/gpt-4o")
+    ]
+)
+
+# View results
+print(result.metrics)
+print(result.assessment_df)
+```
+
+## Core Components
+
+### Tracing
+
+MLflow's tracing capabilities provide observability into LLM application execution:
+
+- **Automatic instrumentation** for popular frameworks (LangChain, LlamaIndex, OpenAI)
+- **Manual instrumentation** with `@mlflow.trace` decorator and context managers
+- **Span hierarchy** to track nested function calls and dependencies
+- **Rich metadata** including inputs, outputs, latency, and token usage
+
+See the [Tracing documentation](/genai/tracing) for details.
+
+### Evaluation
+
+Evaluate LLM applications with flexible scoring mechanisms:
+
+- **Built-in scorers**: Correctness, Safety, Fluency, Groundedness, and more
+- **Custom scorers**: Define your own evaluation logic with the `@scorer` decorator
+- **Trace-based evaluation**: Evaluate directly from captured traces
+- **Multi-turn evaluation**: Assess conversational agents with session-level scorers
+
+See the [Evaluation documentation](/genai/evaluation) for details.
+
+### Prompt Management
+
+Manage prompts as versioned artifacts:
+
+- **Prompt Registry**: Version control for prompt templates
+- **Template variables**: Use `{{variable}}` syntax for dynamic prompts
+- **Aliases**: Tag specific versions as "production" or "staging"
+- **Prompt optimization**: Automatically improve prompts based on evaluation data
+
+See the [Prompt Management documentation](/genai/prompt-management) for details.
+
+### Agents
+
+Monitor and evaluate agentic workflows:
+
+- **Tool call tracking**: Monitor function/tool invocations
+- **Multi-step traces**: Visualize complex agent reasoning chains
+- **Agent-specific scorers**: Evaluate tool usage efficiency and correctness
+- **Session management**: Track multi-turn conversations
+
+See the [Agent Monitoring documentation](/genai/agents) for details.
+
+## Integration with MLflow Tracking
+
+GenAI features integrate seamlessly with MLflow's experiment tracking:
+
+```python
+import mlflow
+
+mlflow.set_experiment("my-llm-experiment")
+
+with mlflow.start_run():
+    # Traces created here are automatically linked to the run
+    result = ask_question("What is MLflow?")
+    
+    # Log metrics and parameters
+    mlflow.log_param("model", "gpt-4o-mini")
+    mlflow.log_metric("response_length", len(result))
+```
+
+## Scorers and Judges
+
+MLflow provides two main evaluation abstractions:
+
+### Scorers
+
+Scorers evaluate individual traces or data points:
+
+```python
+from mlflow.genai.scorers import scorer
+
+@scorer
+def custom_length_scorer(inputs, outputs):
+    """Check if response is under 100 words"""
+    word_count = len(outputs.split())
+    return {"word_count": word_count, "pass": word_count < 100}
+```
+
+### Judges
+
+Judges use LLMs to evaluate outputs with natural language criteria:
+
+```python
+from mlflow.genai import make_judge
+
+custom_judge = make_judge(
+    name="helpfulness",
+    instructions="Rate how helpful the response is to the user's question.",
+    model="openai:/gpt-4o"
+)
+```
+
+## Data Sources
+
+MLflow GenAI supports multiple data sources for evaluation:
+
+| Source | Description | Use Case |
+|--------|-------------|----------|
+| **Traces** | Search and retrieve existing traces | Evaluate production data |
+| **DataFrames** | Pandas/Spark DataFrames | Batch evaluation |
+| **Dictionaries** | List of input/output pairs | Quick testing |
+| **Datasets** | MLflow Dataset entities | Versioned evaluation sets |
+| **Simulators** | Generate synthetic conversations | Multi-turn evaluation |
+
+```python
+# From traces
+traces = mlflow.search_traces(filter_string="timestamp > '2024-01-01'")
+result = mlflow.genai.evaluate(data=traces, scorers=[Safety()])
+
+# From DataFrame
+import pandas as pd
+df = pd.read_csv("eval_data.csv")
+result = mlflow.genai.evaluate(data=df, scorers=[Correctness()])
+
+# From simulator
+from mlflow.genai.simulators import ConversationSimulator
+
+simulator = ConversationSimulator(
+    test_cases=[{"goal": "Learn about MLflow", "persona": "Beginner"}],
+    max_turns=3
+)
+result = mlflow.genai.evaluate(
+    data=simulator,
+    predict_fn=my_agent,
+    scorers=[Safety()]
+)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Enable Tracing Early">
+    Add `mlflow.tracing.enable()` at the start of your application to capture all LLM interactions automatically.
+  </Accordion>
+  
+  <Accordion title="Use Experiments for Organization">
+    Group related traces and evaluations in MLflow experiments for better organization and comparison.
+  </Accordion>
+  
+  <Accordion title="Version Your Prompts">
+    Store prompts in the Prompt Registry to track changes and easily rollback to previous versions.
+  </Accordion>
+  
+  <Accordion title="Combine Multiple Scorers">
+    Evaluate from multiple perspectives (safety, correctness, fluency) to get comprehensive quality assessment.
+  </Accordion>
+  
+  <Accordion title="Monitor Production Traces">
+    Use `mlflow.search_traces()` to periodically evaluate production data and detect quality degradation.
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+### Main Functions
+
+```python
+mlflow.genai.evaluate()          # Evaluate LLM outputs
+mlflow.genai.make_judge()        # Create custom LLM judges
+mlflow.genai.register_prompt()   # Register prompt template
+mlflow.genai.load_prompt()       # Load prompt from registry
+mlflow.genai.optimize_prompts()  # Optimize prompts automatically
+mlflow.tracing.enable()          # Enable tracing
+mlflow.trace()                   # Trace decorator
+mlflow.search_traces()           # Search traces
+```
+
+### Built-in Scorers
+
+```python
+from mlflow.genai.scorers import (
+    Correctness,              # Answer correctness vs expectations
+    Safety,                   # Content safety
+    Fluency,                  # Language fluency
+    RetrievalGroundedness,    # Grounded in context
+    RetrievalRelevance,       # Context relevance
+    ToolCallCorrectness,      # Tool usage correctness
+    ToolCallEfficiency,       # Tool usage efficiency
+    Guidelines,               # Custom guidelines adherence
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tracing Guide" icon="route" href="/genai/tracing">
+    Learn how to instrument and trace your LLM applications
+  </Card>
+  <Card title="Evaluation Guide" icon="clipboard-check" href="/genai/evaluation">
+    Discover how to evaluate LLM quality and performance
+  </Card>
+  <Card title="Prompt Registry" icon="book" href="/genai/prompt-management">
+    Master prompt versioning and optimization
+  </Card>
+  <Card title="Agent Monitoring" icon="diagram-project" href="/genai/agents">
+    Monitor complex multi-step agent workflows
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [MLflow GenAI Examples](https://github.com/mlflow/mlflow/tree/master/examples)
+- [API Documentation](https://mlflow.org/docs/latest/python_api/mlflow.genai.html)
+- [Community Discussions](https://github.com/mlflow/mlflow/discussions)

@@ -1,0 +1,530 @@
+---
+title: Authentication
+description: Configure authentication and user management for MLflow server
+---
+
+## Overview
+
+MLflow provides built-in authentication through the basic-auth app, which enables user management, authentication, and fine-grained access control for experiments, models, and other resources.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install authentication dependencies">
+    Install MLflow with authentication support:
+
+    ```bash
+    pip install mlflow[auth]
+    ```
+
+    <Note>
+    The `[auth]` extra installs Flask-WTF for CSRF protection and other authentication requirements.
+    </Note>
+  </Step>
+
+  <Step title="Create authentication configuration">
+    Create a file named `basic_auth.ini`:
+
+    ```ini basic_auth.ini
+    [mlflow]
+    default_permission = READ
+    database_uri = sqlite:///basic_auth.db
+    admin_username = admin
+    admin_password = password1234
+    authorization_function = mlflow.server.auth:authenticate_request_basic_auth
+    ```
+
+    <Warning>
+    Change the default admin password before deploying to production!
+    </Warning>
+  </Step>
+
+  <Step title="Start the server with authentication">
+    Run the MLflow server with the basic-auth app:
+
+    ```bash
+    mlflow server --app-name basic-auth
+    ```
+
+    The server will read the `basic_auth.ini` file from the current directory.
+  </Step>
+
+  <Step title="Log in">
+    Navigate to `http://localhost:5000` and log in with:
+    - Username: `admin`
+    - Password: `password1234`
+  </Step>
+</Steps>
+
+## Configuration File
+
+### Basic Configuration
+
+The `basic_auth.ini` file contains authentication settings:
+
+```ini basic_auth.ini
+[mlflow]
+# Default permission for authenticated users
+default_permission = READ
+
+# Database for storing users and permissions
+database_uri = sqlite:///basic_auth.db
+
+# Initial admin credentials
+admin_username = admin
+admin_password = password1234
+
+# Authorization function
+authorization_function = mlflow.server.auth:authenticate_request_basic_auth
+```
+
+### Configuration Options
+
+<ParamField path="default_permission" type="string" default="READ">
+  Default permission for authenticated users. Options:
+  - `READ` - View experiments and models
+  - `EDIT` - Create and modify resources
+  - `MANAGE` - Full control including permissions
+  - `NO_PERMISSIONS` - No access by default
+</ParamField>
+
+<ParamField path="database_uri" type="string" required>
+  SQLAlchemy connection string for the authentication database.
+  
+  Examples:
+  - SQLite: `sqlite:///basic_auth.db`
+  - PostgreSQL: `postgresql://user:password@localhost/auth_db`
+  - MySQL: `mysql+pymysql://user:password@localhost/auth_db`
+</ParamField>
+
+<ParamField path="admin_username" type="string" required>
+  Username for the initial admin user.
+</ParamField>
+
+<ParamField path="admin_password" type="string" required>
+  Password for the initial admin user.
+</ParamField>
+
+<ParamField path="authorization_function" type="string" default="mlflow.server.auth:authenticate_request_basic_auth">
+  Python path to the authentication function. Use the default for basic auth.
+</ParamField>
+
+### Workspace Configuration
+
+<ParamField path="grant_default_workspace_access" type="boolean" default="false">
+  When true, users inherit `default_permission` for the default workspace.
+</ParamField>
+
+<ParamField path="workspace_cache_max_size" type="integer" default="10000">
+  Maximum number of workspace cache entries.
+</ParamField>
+
+<ParamField path="workspace_cache_ttl_seconds" type="integer" default="3600">
+  Time-to-live for workspace cache entries in seconds.
+</ParamField>
+
+```ini basic_auth.ini
+[mlflow]
+default_permission = READ
+database_uri = postgresql://mlflow:password@localhost/mlflow_auth
+admin_username = admin
+admin_password = SecurePassword123!
+authorization_function = mlflow.server.auth:authenticate_request_basic_auth
+grant_default_workspace_access = true
+workspace_cache_max_size = 10000
+workspace_cache_ttl_seconds = 3600
+```
+
+## Custom Configuration Path
+
+Specify a custom configuration file path:
+
+```bash
+export MLFLOW_AUTH_CONFIG_PATH=/path/to/custom_auth.ini
+mlflow server --app-name basic-auth
+```
+
+## User Management
+
+### Creating Users
+
+As an admin, you can create users through the UI or via the REST API:
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/users/create",
+    json={
+        "username": "data_scientist",
+        "password": "secure_password"
+    },
+    auth=("admin", "password1234")
+)
+```
+
+### Listing Users
+
+```python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/users/list",
+    auth=("admin", "password1234")
+)
+users = response.json()["users"]
+```
+
+### Updating User Passwords
+
+Users can update their own passwords:
+
+```python
+import requests
+
+response = requests.patch(
+    "http://localhost:5000/api/2.0/mlflow/users/update-password",
+    json={
+        "username": "data_scientist",
+        "password": "new_secure_password"
+    },
+    auth=("data_scientist", "old_password")
+)
+```
+
+### Updating Admin Status
+
+Admins can grant or revoke admin privileges:
+
+```python
+import requests
+
+response = requests.patch(
+    "http://localhost:5000/api/2.0/mlflow/users/update-admin",
+    json={
+        "username": "data_scientist",
+        "is_admin": True
+    },
+    auth=("admin", "password1234")
+)
+```
+
+### Deleting Users
+
+```python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/users/delete",
+    json={"username": "old_user"},
+    auth=("admin", "password1234")
+)
+```
+
+## Permission Management
+
+### Permission Levels
+
+MLflow supports four permission levels:
+
+| Permission | Description |
+|------------|-------------|
+| `READ` | View experiments, runs, models, and artifacts |
+| `EDIT` | Create experiments, log runs, update metadata |
+| `MANAGE` | Full control including permission management |
+| `NO_PERMISSIONS` | No access to the resource |
+
+### Granting Experiment Permissions
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/permissions/create",
+    json={
+        "experiment_id": "1",
+        "username": "data_scientist",
+        "permission": "EDIT"
+    },
+    auth=("admin", "password1234")
+)
+```
+
+### Granting Registered Model Permissions
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/permissions/create",
+    json={
+        "name": "my-model",
+        "username": "data_scientist",
+        "permission": "MANAGE"
+    },
+    auth=("admin", "password1234")
+)
+```
+
+### Listing Permissions
+
+Get all permissions for an experiment:
+
+```python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/experiments/permissions/get",
+    params={"experiment_id": "1"},
+    auth=("admin", "password1234")
+)
+permissions = response.json()["experiment_permissions"]
+```
+
+### Updating Permissions
+
+```python
+import requests
+
+response = requests.patch(
+    "http://localhost:5000/api/2.0/mlflow/experiments/permissions/update",
+    json={
+        "experiment_id": "1",
+        "username": "data_scientist",
+        "permission": "MANAGE"
+    },
+    auth=("admin", "password1234")
+)
+```
+
+### Deleting Permissions
+
+```python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/experiments/permissions/delete",
+    json={
+        "experiment_id": "1",
+        "username": "data_scientist"
+    },
+    auth=("admin", "password1234")
+)
+```
+
+## Client Configuration
+
+### Using MLflow Client with Authentication
+
+Set credentials via environment variables:
+
+```bash
+export MLFLOW_TRACKING_USERNAME=data_scientist
+export MLFLOW_TRACKING_PASSWORD=secure_password
+```
+
+Then use MLflow normally:
+
+```python
+import mlflow
+
+mlflow.set_tracking_uri("http://localhost:5000")
+
+with mlflow.start_run():
+    mlflow.log_param("alpha", 0.5)
+    mlflow.log_metric("rmse", 0.789)
+```
+
+### Using Requests Library
+
+```python
+import requests
+
+auth = ("data_scientist", "secure_password")
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/create",
+    json={"experiment_id": "1"},
+    auth=auth
+)
+```
+
+## Database Setup
+
+### SQLite (Development)
+
+SQLite is suitable for development and testing:
+
+```ini basic_auth.ini
+[mlflow]
+database_uri = sqlite:///basic_auth.db
+```
+
+### PostgreSQL (Production)
+
+For production, use PostgreSQL:
+
+<Steps>
+  <Step title="Create database">
+    ```sql
+    CREATE DATABASE mlflow_auth;
+    CREATE USER mlflow_auth_user WITH PASSWORD 'secure_password';
+    GRANT ALL PRIVILEGES ON DATABASE mlflow_auth TO mlflow_auth_user;
+    ```
+  </Step>
+
+  <Step title="Configure connection">
+    ```ini basic_auth.ini
+    [mlflow]
+    database_uri = postgresql://mlflow_auth_user:secure_password@localhost:5432/mlflow_auth
+    ```
+  </Step>
+
+  <Step title="Start server">
+    The server will automatically create the required tables.
+
+    ```bash
+    mlflow server --app-name basic-auth
+    ```
+  </Step>
+</Steps>
+
+### MySQL (Production)
+
+<Steps>
+  <Step title="Create database">
+    ```sql
+    CREATE DATABASE mlflow_auth CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER 'mlflow_auth_user'@'localhost' IDENTIFIED BY 'secure_password';
+    GRANT ALL PRIVILEGES ON mlflow_auth.* TO 'mlflow_auth_user'@'localhost';
+    FLUSH PRIVILEGES;
+    ```
+  </Step>
+
+  <Step title="Configure connection">
+    ```ini basic_auth.ini
+    [mlflow]
+    database_uri = mysql+pymysql://mlflow_auth_user:secure_password@localhost:3306/mlflow_auth
+    ```
+  </Step>
+
+  <Step title="Install MySQL driver">
+    ```bash
+    pip install pymysql
+    ```
+  </Step>
+</Steps>
+
+## Production Deployment
+
+### Complete Production Configuration
+
+```ini basic_auth.ini
+[mlflow]
+default_permission = READ
+database_uri = postgresql://mlflow_auth:${AUTH_DB_PASSWORD}@auth-db:5432/mlflow_auth
+admin_username = admin
+admin_password = ${ADMIN_PASSWORD}
+authorization_function = mlflow.server.auth:authenticate_request_basic_auth
+grant_default_workspace_access = false
+workspace_cache_max_size = 10000
+workspace_cache_ttl_seconds = 3600
+```
+
+```bash
+export AUTH_DB_PASSWORD=secure_db_password
+export ADMIN_PASSWORD=secure_admin_password
+
+mlflow server \
+  --app-name basic-auth \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --workers 16 \
+  --backend-store-uri postgresql://mlflow:${DB_PASSWORD}@tracking-db:5432/mlflow \
+  --default-artifact-root s3://mlflow-artifacts/production \
+  --allowed-hosts "mlflow.company.com" \
+  --cors-allowed-origins "https://app.company.com"
+```
+
+## Security Best Practices
+
+<Warning>
+Follow these security practices for production deployments:
+</Warning>
+
+1. **Use strong passwords**: Enforce password complexity requirements
+2. **Separate databases**: Use different databases for auth and tracking data
+3. **Enable HTTPS**: Always use TLS/SSL in production
+4. **Rotate credentials**: Regularly update admin and service account passwords
+5. **Limit default permissions**: Use `NO_PERMISSIONS` as default, grant explicitly
+6. **Monitor access**: Track authentication and authorization events
+7. **Use environment variables**: Never hardcode passwords in configuration files
+
+## Troubleshooting
+
+### Authentication Not Working
+
+1. **Check configuration file path:**
+   ```bash
+   export MLFLOW_AUTH_CONFIG_PATH=/path/to/basic_auth.ini
+   ```
+
+2. **Verify database connection:**
+   ```python
+   from sqlalchemy import create_engine
+   engine = create_engine("sqlite:///basic_auth.db")
+   engine.connect()
+   ```
+
+3. **Check server logs:**
+   ```bash
+   mlflow server --app-name basic-auth --uvicorn-opts "--log-level debug"
+   ```
+
+### Permission Denied Errors
+
+1. **Check user permissions:**
+   ```python
+   import requests
+   response = requests.get(
+       "http://localhost:5000/api/2.0/mlflow/experiments/permissions/get",
+       params={"experiment_id": "1"},
+       auth=("username", "password")
+   )
+   ```
+
+2. **Verify default permission:**
+   Check `default_permission` in `basic_auth.ini`
+
+### Database Migration Issues
+
+The authentication database is managed separately from the tracking database. To reset:
+
+```bash
+# Backup first!
+cp basic_auth.db basic_auth.db.backup
+
+# Remove and restart (will recreate with initial admin)
+rm basic_auth.db
+mlflow server --app-name basic-auth
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Setup" icon="database" href="/server/database">
+    Configure backend databases for production
+  </Card>
+  
+  <Card title="Security Guide" icon="shield" href="https://mlflow.org/docs/latest/tracking/server-security.html">
+    Comprehensive security configuration
+  </Card>
+  
+  <Card title="REST API" icon="code" href="https://mlflow.org/docs/latest/rest-api.html">
+    Complete REST API reference
+  </Card>
+  
+  <Card title="Deployment" icon="rocket" href="https://mlflow.org/docs/latest/deployment/">
+    Deploy MLflow to production
+  </Card>
+</CardGroup>

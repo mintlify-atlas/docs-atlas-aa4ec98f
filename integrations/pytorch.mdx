@@ -1,0 +1,618 @@
+---
+title: PyTorch Integration  
+description: Train and log PyTorch models with MLflow autologging
+---
+
+MLflow provides comprehensive support for PyTorch and PyTorch Lightning, enabling automatic logging of metrics, parameters, models, and checkpoints during training.
+
+## Installation
+
+```bash
+pip install mlflow torch pytorch-lightning
+# or for newer versions
+pip install mlflow torch lightning
+```
+
+## Quick Start
+
+### PyTorch Lightning
+
+```python
+import lightning as L
+import torch
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+import mlflow.pytorch
+
+# Enable autologging
+mlflow.pytorch.autolog()
+
+class MNISTModel(L.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.l1 = torch.nn.Linear(28 * 28, 10)
+    
+    def forward(self, x):
+        return torch.relu(self.l1(x.view(x.size(0), -1)))
+    
+    def training_step(self, batch, batch_nb):
+        x, y = batch
+        loss = F.cross_entropy(self(x), y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.02)
+
+# Initialize model and trainer
+model = MNISTModel()
+trainer = L.Trainer(max_epochs=3)
+
+# Train - MLflow automatically logs everything
+with mlflow.start_run():
+    trainer.fit(model, train_loader)
+```
+
+### Vanilla PyTorch
+
+```python
+import torch
+import torch.nn as nn
+import mlflow.pytorch
+from mlflow.models import infer_signature
+
+# Define model
+model = nn.Linear(1, 1)
+criterion = nn.MSELoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
+
+# Training data
+X = torch.arange(1.0, 26.0).reshape(-1, 1)
+y = X * 2
+
+with mlflow.start_run():
+    # Training loop
+    for epoch in range(250):
+        y_pred = model(X)
+        loss = criterion(y_pred, y)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        if epoch % 50 == 0:
+            mlflow.log_metric("loss", loss.item(), step=epoch)
+    
+    # Log model with signature
+    signature = infer_signature(X.numpy(), model(X).detach().numpy())
+    mlflow.pytorch.log_model(model, "model", signature=signature)
+```
+
+## Autologging
+
+Enable autologging for automatic tracking:
+
+```python
+import mlflow.pytorch
+
+mlflow.pytorch.autolog(
+    log_every_n_epoch=1,
+    log_every_n_step=None,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    registered_model_name=None,
+    extra_tags=None,
+    checkpoint=True,
+    checkpoint_monitor="val_loss",
+    checkpoint_mode="min",
+    checkpoint_save_best_only=True,
+    checkpoint_save_weights_only=False,
+    checkpoint_save_freq="epoch",
+    log_model_signatures=True
+)
+```
+
+<ParamField path="log_every_n_epoch" type="int" default="1">
+  Log metrics once every n epochs
+</ParamField>
+
+<ParamField path="log_every_n_step" type="int" default="None">
+  Log batch metrics once every n training steps
+</ParamField>
+
+<ParamField path="log_models" type="bool" default="True">
+  If True, trained models are logged as MLflow model artifacts
+</ParamField>
+
+<ParamField path="checkpoint" type="bool" default="True">
+  Enable automatic model checkpointing
+</ParamField>
+
+<ParamField path="checkpoint_monitor" type="str" default="val_loss">
+  Metric name to monitor for checkpointing
+</ParamField>
+
+<ParamField path="checkpoint_save_best_only" type="bool" default="True">
+  Only save checkpoint when monitored metric improves
+</ParamField>
+
+### What Gets Logged
+
+For PyTorch Lightning:
+- **Metrics**: Training and validation loss, user-logged metrics
+- **Parameters**: Hyperparameters from `model.hparams`
+- **Models**: Trained model in MLflow format
+- **Checkpoints**: Model checkpoints at specified intervals
+- **Artifacts**: Model summary, optimizer state
+
+For vanilla PyTorch:
+- **Metrics**: From `SummaryWriter.add_scalar()` calls
+- **Parameters**: From `SummaryWriter.add_hparams()` calls
+
+## Logging Models
+
+### Save a Model
+
+```python
+import torch
+import mlflow.pytorch
+from mlflow.models import infer_signature
+
+model = nn.Linear(1, 1)
+# Train model...
+
+# Save with signature
+input_example = torch.Tensor([[1.0]])
+signature = infer_signature(
+    input_example.numpy(),
+    model(input_example).detach().numpy()
+)
+
+mlflow.pytorch.save_model(
+    model,
+    "model_path",
+    signature=signature,
+    input_example=input_example.numpy()
+)
+```
+
+### Log a Model
+
+```python
+import mlflow.pytorch
+
+with mlflow.start_run():
+    # Train model
+    model = train_model()
+    
+    # Log model
+    mlflow.pytorch.log_model(
+        pytorch_model=model,
+        name="model",
+        signature=signature,
+        input_example=input_example,
+        registered_model_name="pytorch_model",
+        pip_requirements=["torch==2.0.0"]
+    )
+```
+
+### Scripted Models
+
+```python
+import torch
+import mlflow.pytorch
+
+model = nn.Linear(1, 1)
+# Train model...
+
+# Convert to TorchScript
+scripted_model = torch.jit.script(model)
+
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        scripted_model,
+        name="scripted_model"
+    )
+```
+
+### Export Format (Safe Alternative)
+
+```python
+import torch
+import mlflow.pytorch
+import numpy as np
+
+model = train_model()
+input_example = np.array([[1.0, 2.0, 3.0]])
+
+# Save using torch.export (requires torch >= 2.4)
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        model,
+        name="model",
+        export_model=True,  # Use safe export format
+        input_example=input_example,
+        signature=signature
+    )
+```
+
+<Note>
+  The `export_model=True` option uses `torch.export` for safer serialization, avoiding pickle-related security issues. Requires PyTorch >= 2.4.
+</Note>
+
+### Load a Model
+
+```python
+import mlflow.pytorch
+import torch
+
+# Load native PyTorch model
+model_uri = "runs:/abc123/model"
+model = mlflow.pytorch.load_model(model_uri)
+
+# Make predictions
+X = torch.Tensor([[6.0]])
+y_pred = model(X)
+
+# Load as PyFunc
+import mlflow.pyfunc
+pyfunc_model = mlflow.pyfunc.load_model(model_uri)
+predictions = pyfunc_model.predict(X.numpy())
+```
+
+## Checkpointing
+
+### Automatic Checkpointing
+
+```python
+import mlflow.pytorch
+
+mlflow.pytorch.autolog(
+    checkpoint=True,
+    checkpoint_monitor="val_loss",
+    checkpoint_mode="min",
+    checkpoint_save_best_only=True,
+    checkpoint_save_weights_only=False,
+    checkpoint_save_freq="epoch"
+)
+
+with mlflow.start_run():
+    trainer.fit(model, train_loader, val_loader)
+    # Checkpoints are automatically saved
+```
+
+### Load Checkpoint
+
+```python
+import mlflow.pytorch
+
+# Load latest checkpoint
+model = mlflow.pytorch.load_checkpoint(
+    MyLightningModule,
+    run_id="abc123"
+)
+
+# Load specific epoch
+model = mlflow.pytorch.load_checkpoint(
+    MyLightningModule,
+    run_id="abc123",
+    epoch=5
+)
+
+# Load specific global step
+model = mlflow.pytorch.load_checkpoint(
+    MyLightningModule,
+    run_id="abc123",
+    global_step=1000
+)
+```
+
+## Advanced Features
+
+### Custom Callbacks
+
+```python
+import lightning as L
+import mlflow
+from lightning.pytorch.callbacks import Callback
+
+class CustomMetricsCallback(Callback):
+    def on_epoch_end(self, trainer, pl_module):
+        # Log custom metrics
+        mlflow.log_metric("custom_metric", compute_metric())
+
+mlflow.pytorch.autolog()
+
+trainer = L.Trainer(
+    callbacks=[CustomMetricsCallback()],
+    max_epochs=10
+)
+
+with mlflow.start_run():
+    trainer.fit(model, train_loader)
+```
+
+### Early Stopping
+
+```python
+import mlflow.pytorch
+from lightning.pytorch.callbacks import EarlyStopping
+
+early_stop = EarlyStopping(
+    monitor="val_loss",
+    patience=3,
+    mode="min"
+)
+
+mlflow.pytorch.autolog()
+
+trainer = L.Trainer(
+    callbacks=[early_stop],
+    max_epochs=100
+)
+
+with mlflow.start_run():
+    trainer.fit(model, train_loader, val_loader)
+    # Early stopping info is automatically logged
+```
+
+### Learning Rate Monitoring
+
+```python
+from lightning.pytorch.callbacks import LearningRateMonitor
+
+lr_monitor = LearningRateMonitor(logging_interval='epoch')
+
+trainer = L.Trainer(
+    callbacks=[lr_monitor],
+    max_epochs=10
+)
+
+mlflow.pytorch.autolog()
+
+with mlflow.start_run():
+    trainer.fit(model, train_loader)
+    # Learning rate is logged automatically
+```
+
+### TensorBoard Integration
+
+```python
+import torch
+import mlflow.pytorch
+from torch.utils.tensorboard import SummaryWriter
+
+# Autologging captures TensorBoard metrics
+mlflow.pytorch.autolog(log_every_n_step=100)
+
+writer = SummaryWriter()
+
+for epoch in range(100):
+    # Training...
+    loss = train_epoch()
+    
+    # This gets logged to MLflow
+    writer.add_scalar('Loss/train', loss, epoch)
+    
+    # Log hyperparameters
+    if epoch == 0:
+        writer.add_hparams(
+            {'lr': 0.001, 'batch_size': 32},
+            {'loss': loss}
+        )
+
+writer.close()
+```
+
+## Model Signatures
+
+Always use signatures to ensure proper inference:
+
+```python
+import torch
+import mlflow.pytorch
+from mlflow.models import infer_signature
+from mlflow.types.schema import Schema, TensorSpec
+import numpy as np
+
+# Option 1: Infer signature
+input_example = torch.randn(1, 3, 224, 224)
+output = model(input_example)
+signature = infer_signature(
+    input_example.numpy(),
+    output.detach().numpy()
+)
+
+# Option 2: Manual signature
+input_schema = Schema([
+    TensorSpec(np.dtype(np.float32), (-1, 3, 224, 224), "image")
+])
+output_schema = Schema([
+    TensorSpec(np.dtype(np.float32), (-1, 1000), "predictions")
+])
+signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+
+# Log with signature
+mlflow.pytorch.log_model(model, "model", signature=signature)
+```
+
+## Device Management
+
+### GPU Training
+
+```python
+import torch
+import mlflow.pytorch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
+
+with mlflow.start_run():
+    mlflow.log_param("device", device)
+    
+    # Training on GPU
+    for x, y in train_loader:
+        x, y = x.to(device), y.to(device)
+        # Train...
+    
+    # Save model (it will be on GPU)
+    mlflow.pytorch.log_model(model, "model")
+
+# Load on specific device
+model = mlflow.pytorch.load_model(
+    "runs:/abc123/model",
+    map_location="cuda:0"
+)
+```
+
+### Inference Device Configuration
+
+```python
+import mlflow.pyfunc
+
+# Load on CPU
+model = mlflow.pyfunc.load_model(
+    "runs:/abc123/model",
+    model_config={"device": "cpu"}
+)
+
+# Load on GPU
+model = mlflow.pyfunc.load_model(
+    "runs:/abc123/model",
+    model_config={"device": "cuda:0"}
+)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Use Signatures">
+    Signatures prevent inference errors:
+    
+    ```python
+    signature = infer_signature(X.numpy(), model(X).detach().numpy())
+    mlflow.pytorch.log_model(model, "model", signature=signature)
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Checkpointing">
+    Save checkpoints to resume training:
+    
+    ```python
+    mlflow.pytorch.autolog(
+        checkpoint=True,
+        checkpoint_save_best_only=True
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Log Input Examples">
+    Provide input examples for clarity:
+    
+    ```python
+    mlflow.pytorch.log_model(
+        model,
+        "model",
+        input_example=X[:5].numpy()
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Export Format for Security">
+    Prefer `export_model=True` to avoid pickle:
+    
+    ```python
+    mlflow.pytorch.log_model(
+        model,
+        "model",
+        export_model=True,
+        input_example=X.numpy()
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Distributed Training
+
+```python
+import lightning as L
+import mlflow.pytorch
+
+mlflow.pytorch.autolog()
+
+trainer = L.Trainer(
+    accelerator="gpu",
+    devices=4,
+    strategy="ddp"
+)
+
+with mlflow.start_run():
+    trainer.fit(model, train_loader)
+    # Metrics from all devices are aggregated
+```
+
+### Mixed Precision Training
+
+```python
+import lightning as L
+import mlflow.pytorch
+
+mlflow.pytorch.autolog()
+
+trainer = L.Trainer(
+    precision="16-mixed",
+    max_epochs=10
+)
+
+with mlflow.start_run():
+    mlflow.log_param("precision", "16-mixed")
+    trainer.fit(model, train_loader)
+```
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m runs:/<run_id>/model -p 5000
+```
+
+Test:
+
+```python
+import requests
+import numpy as np
+
+data = np.array([[1.0, 2.0, 3.0]])
+response = requests.post(
+    "http://127.0.0.1:5000/invocations",
+    json={"dataframe_split": {"data": data.tolist()}}
+)
+print(response.json())
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="TensorFlow Integration" icon="t" href="/integrations/tensorflow">
+    Track TensorFlow and Keras models
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and deploy PyTorch models
+  </Card>
+  
+  <Card title="Hyperparameter Tuning" icon="sliders" href="/tracking/hyperparameters">
+    Optimize model hyperparameters
+  </Card>
+  
+  <Card title="Deployment Guide" icon="rocket" href="/deployment">
+    Deploy models to production
+  </Card>
+</CardGroup>

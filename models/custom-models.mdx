@@ -1,0 +1,542 @@
+---
+title: Custom PyFunc Models
+description: Create custom MLflow models with arbitrary Python code and inference logic
+---
+
+MLflow's `pyfunc` module allows you to create custom models using arbitrary Python code. This is useful when you need custom inference logic, preprocessing, postprocessing, or when working with frameworks not natively supported by MLflow.
+
+## Overview
+
+Custom PyFunc models enable you to:
+
+- Implement custom inference logic
+- Combine multiple models in a pipeline
+- Add preprocessing and postprocessing steps
+- Use frameworks not natively supported by MLflow
+- Package arbitrary artifacts with your model
+
+<Note>
+MLflow 2.12.2 introduced "models from code" which simplifies custom model creation through script serialization. For new projects, consider using models from code instead of cloudpickle serialization.
+</Note>
+
+## Two Approaches to Custom Models
+
+MLflow supports two interfaces for creating custom PyFunc models:
+
+1. **Function-based models** - Simple Python functions
+2. **Class-based models** - Subclasses of `PythonModel`
+
+### When to Use Each Approach
+
+<CardGroup cols={2}>
+  <Card title="Function-based" icon="function">
+    **Use when:**
+    - Simple inference logic
+    - No state management needed
+    - Single predict function
+    - No custom artifacts
+  </Card>
+  <Card title="Class-based" icon="object-group">
+    **Use when:**
+    - Complex inference logic
+    - Need to load artifacts
+    - Custom initialization
+    - Multiple helper methods
+    - Support for inference parameters
+  </Card>
+</CardGroup>
+
+## Function-based Models
+
+For simple use cases, you can log a Python function directly.
+
+### Basic Example
+
+From `mlflow/pyfunc/__init__.py` documentation:
+
+```python
+import mlflow
+import pandas as pd
+
+# Define a simple function
+def predict(model_input):
+    """Double all input values."""
+    return model_input.apply(lambda x: x * 2)
+
+# Save the function as a model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=predict,
+        pip_requirements=["pandas"]
+    )
+    run_id = mlflow.active_run().info.run_id
+
+# Load and use the model
+model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+x_new = pd.Series([1, 2, 3])
+prediction = model.predict(x_new)
+print(prediction)  # [2, 4, 6]
+```
+
+<Warning>
+Function-based models only support a single input argument. If you need to pass additional inference parameters, use a class-based model instead.
+</Warning>
+
+### Lambda Functions
+
+```python
+import mlflow.pyfunc
+
+# Log a lambda function
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=lambda x: x ** 2,
+        pip_requirements=["pandas"]
+    )
+```
+
+## Class-based Models
+
+For more complex scenarios, subclass `PythonModel` to create custom models with full control.
+
+### The PythonModel Class
+
+From `mlflow/pyfunc/model.py`:
+
+```python
+class PythonModel:
+    """
+    Represents a generic Python model that evaluates inputs and produces API-compatible outputs.
+    By subclassing PythonModel, users can create customized MLflow models with the
+    "python_function" ("pyfunc") flavor, leveraging custom inference logic and artifact
+    dependencies.
+    """
+
+    def load_context(self, context):
+        """
+        Loads artifacts from the specified PythonModelContext that can be used by
+        predict() when evaluating inputs. Called when loading the model.
+
+        Args:
+            context: A PythonModelContext instance containing artifacts that the model
+                     can use to perform inference.
+        """
+        pass
+
+    def predict(self, context, model_input, params=None):
+        """
+        Evaluates a pyfunc-compatible input and produces a pyfunc-compatible output.
+
+        Args:
+            context: A PythonModelContext instance containing artifacts
+            model_input: Input data (DataFrame, numpy array, dict, list, etc.)
+            params: Optional dictionary of inference parameters
+
+        Returns:
+            Model predictions
+        """
+        pass
+```
+
+### Basic Class-based Model
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+class DoubleModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        """Double all input values."""
+        return model_input * 2
+
+# Log the model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=DoubleModel(),
+        pip_requirements=["pandas"]
+    )
+    run_id = mlflow.active_run().info.run_id
+
+# Load and use
+model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+predictions = model.predict(pd.Series([1, 2, 3]))
+print(predictions)  # [2, 4, 6]
+```
+
+### Model with Artifacts
+
+Package additional files (e.g., serialized models, configs) with your custom model:
+
+```python
+import mlflow.pyfunc
+import joblib
+import pandas as pd
+from pathlib import Path
+
+class ModelWithArtifacts(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        """Load artifacts when the model is loaded."""
+        # Load serialized sklearn model
+        model_path = context.artifacts["sklearn_model"]
+        self.model = joblib.load(model_path)
+        
+        # Load preprocessing config
+        config_path = context.artifacts["config"]
+        import json
+        with open(config_path) as f:
+            self.config = json.load(f)
+    
+    def predict(self, context, model_input, params=None):
+        """Apply preprocessing and make predictions."""
+        # Apply preprocessing based on config
+        if self.config.get("normalize", False):
+            model_input = (model_input - model_input.mean()) / model_input.std()
+        
+        # Make predictions
+        return self.model.predict(model_input)
+
+# Train a sklearn model
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+
+X, y = load_iris(return_X_y=True)
+model = RandomForestClassifier()
+model.fit(X, y)
+
+# Save artifacts locally
+import json
+import tempfile
+
+with tempfile.TemporaryDirectory() as tmpdir:
+    model_path = Path(tmpdir) / "model.pkl"
+    config_path = Path(tmpdir) / "config.json"
+    
+    joblib.dump(model, model_path)
+    with open(config_path, 'w') as f:
+        json.dump({"normalize": True}, f)
+    
+    # Log model with artifacts
+    with mlflow.start_run():
+        mlflow.pyfunc.log_model(
+            artifact_path="model",
+            python_model=ModelWithArtifacts(),
+            artifacts={
+                "sklearn_model": str(model_path),
+                "config": str(config_path)
+            },
+            pip_requirements=["scikit-learn", "joblib", "pandas"]
+        )
+```
+
+### Model with Inference Parameters
+
+Support dynamic parameters at inference time:
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+class ParameterizedModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        """
+        Make predictions with optional parameters.
+        
+        Args:
+            context: Model context
+            model_input: Input data
+            params: Dictionary with optional keys:
+                - multiplier: Value to multiply inputs by (default: 2)
+                - offset: Value to add to results (default: 0)
+        """
+        params = params or {}
+        multiplier = params.get("multiplier", 2)
+        offset = params.get("offset", 0)
+        
+        result = model_input * multiplier + offset
+        return result
+
+# Log model with parameter schema
+from mlflow.models.signature import infer_signature
+from mlflow.types import ParamSchema, ParamSpec
+
+params_schema = ParamSchema([
+    ParamSpec("multiplier", "double", 2.0),
+    ParamSpec("offset", "double", 0.0)
+])
+
+X = pd.DataFrame({"feature": [1, 2, 3]})
+y = pd.Series([2, 4, 6])
+
+signature = infer_signature(
+    X, 
+    y,
+    params={"multiplier": 2.0, "offset": 0.0}
+)
+
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=ParameterizedModel(),
+        signature=signature,
+        pip_requirements=["pandas"]
+    )
+    run_id = mlflow.active_run().info.run_id
+
+# Use with different parameters
+model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+
+# Default parameters
+result1 = model.predict(X)
+print(result1)  # [2, 4, 6]
+
+# Custom parameters
+result2 = model.predict(X, params={"multiplier": 3.0, "offset": 1.0})
+print(result2)  # [4, 7, 10]
+```
+
+## Advanced Patterns
+
+### Multi-Model Pipeline
+
+Combine multiple models in a single custom PyFunc:
+
+```python
+import mlflow.pyfunc
+import mlflow.sklearn
+import pandas as pd
+
+class EnsembleModel(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        """Load multiple models."""
+        self.model1 = mlflow.sklearn.load_model(context.artifacts["model1"])
+        self.model2 = mlflow.sklearn.load_model(context.artifacts["model2"])
+        self.model3 = mlflow.sklearn.load_model(context.artifacts["model3"])
+    
+    def predict(self, context, model_input, params=None):
+        """Average predictions from all models."""
+        pred1 = self.model1.predict(model_input)
+        pred2 = self.model2.predict(model_input)
+        pred3 = self.model3.predict(model_input)
+        
+        # Average predictions
+        import numpy as np
+        return np.mean([pred1, pred2, pred3], axis=0)
+
+# Train and log individual models
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.datasets import load_iris
+
+X, y = load_iris(return_X_y=True)
+
+models = {
+    "model1": RandomForestClassifier().fit(X, y),
+    "model2": LogisticRegression().fit(X, y),
+    "model3": SVC(probability=True).fit(X, y)
+}
+
+artifacts = {}
+for name, model in models.items():
+    with mlflow.start_run(nested=True):
+        model_info = mlflow.sklearn.log_model(model, name)
+        artifacts[name] = model_info.model_uri
+
+# Log ensemble model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="ensemble",
+        python_model=EnsembleModel(),
+        artifacts=artifacts,
+        pip_requirements=["scikit-learn", "mlflow"]
+    )
+```
+
+### Preprocessing and Postprocessing
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+import numpy as np
+
+class PreprocessingModel(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        import joblib
+        self.model = joblib.load(context.artifacts["model"])
+        self.scaler = joblib.load(context.artifacts["scaler"])
+        self.feature_names = joblib.load(context.artifacts["features"])
+    
+    def predict(self, context, model_input, params=None):
+        # Convert to DataFrame if needed
+        if not isinstance(model_input, pd.DataFrame):
+            model_input = pd.DataFrame(model_input)
+        
+        # Handle missing features
+        for col in self.feature_names:
+            if col not in model_input.columns:
+                model_input[col] = 0
+        
+        # Select and order features
+        model_input = model_input[self.feature_names]
+        
+        # Scale features
+        scaled_input = self.scaler.transform(model_input)
+        
+        # Make predictions
+        predictions = self.model.predict_proba(scaled_input)
+        
+        # Postprocessing: convert to class labels with threshold
+        threshold = params.get("threshold", 0.5) if params else 0.5
+        return (predictions[:, 1] > threshold).astype(int)
+```
+
+### State Management
+
+```python
+import mlflow.pyfunc
+import time
+
+class StatefulModel(mlflow.pyfunc.PythonModel):
+    def __init__(self):
+        self.prediction_count = 0
+        self.total_inference_time = 0.0
+    
+    def load_context(self, context):
+        import joblib
+        self.model = joblib.load(context.artifacts["model"])
+    
+    def predict(self, context, model_input, params=None):
+        start_time = time.time()
+        
+        # Make prediction
+        predictions = self.model.predict(model_input)
+        
+        # Update metrics
+        self.prediction_count += len(model_input)
+        self.total_inference_time += time.time() - start_time
+        
+        # Log stats periodically
+        if self.prediction_count % 100 == 0:
+            avg_time = self.total_inference_time / self.prediction_count
+            print(f"Predictions: {self.prediction_count}, Avg time: {avg_time:.4f}s")
+        
+        return predictions
+```
+
+## Serialization Considerations
+
+<Warning>
+Custom PyFunc models are serialized using `cloudpickle` by default. This has important implications:
+
+- **Environment dependencies** must be specified via `pip_requirements`
+- **External resources** (files, databases) cannot be pickled directly
+- **Module-level imports** should be done in `load_context()` or `predict()`
+</Warning>
+
+### Best Practices for Serialization
+
+```python
+import mlflow.pyfunc
+
+class WellSerializedModel(mlflow.pyfunc.PythonModel):
+    """Example of serialization best practices."""
+    
+    def load_context(self, context):
+        """Import heavy dependencies only when loading."""
+        # Import here instead of module level
+        import torch
+        import transformers
+        
+        # Load model from artifacts
+        model_path = context.artifacts["model"]
+        self.model = torch.load(model_path)
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+            context.artifacts["tokenizer"]
+        )
+    
+    def predict(self, context, model_input, params=None):
+        """Inference with loaded artifacts."""
+        # Import lightweight dependencies here if needed
+        import numpy as np
+        
+        # Use loaded artifacts
+        tokens = self.tokenizer(model_input, return_tensors="pt")
+        outputs = self.model(**tokens)
+        
+        return outputs.logits.detach().numpy()
+```
+
+## Testing Custom Models
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+import tempfile
+from pathlib import Path
+
+class MyModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        return model_input * 2
+
+# Test the model before logging
+def test_custom_model():
+    model = MyModel()
+    test_input = pd.DataFrame({"x": [1, 2, 3]})
+    expected = pd.DataFrame({"x": [2, 4, 6]})
+    
+    # Test predict locally
+    result = model.predict(None, test_input)
+    assert result.equals(expected), "Prediction mismatch"
+    
+    # Test save/load cycle
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mlflow.pyfunc.save_model(
+            path=tmpdir,
+            python_model=model
+        )
+        loaded_model = mlflow.pyfunc.load_model(tmpdir)
+        loaded_result = loaded_model.predict(test_input)
+        assert loaded_result.equals(expected), "Loaded model mismatch"
+    
+    print("All tests passed!")
+
+test_custom_model()
+```
+
+## Limitations
+
+From the source code comments:
+
+<AccordionGroup>
+  <Accordion title="cloudpickle limitations">
+    - Does not capture the full execution environment
+    - Cannot serialize objects outside Python data model (raw files, DB connections)
+    - Requires dependencies to be specified explicitly
+  </Accordion>
+  
+  <Accordion title="Function-based model limitations">
+    - Only supports single input argument
+    - No inference parameters support
+    - Cannot implement `load_context()`
+  </Accordion>
+  
+  <Accordion title="Performance considerations">
+    - `load_context()` is called once when model loads
+    - Heavy operations should be in `load_context()`, not `predict()`
+    - Consider model size and loading time
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Signatures" icon="file-signature" href="/models/signatures">
+    Define schemas for custom models
+  </Card>
+  <Card title="Dependencies" icon="package" href="/models/dependencies">
+    Manage custom model dependencies
+  </Card>
+</CardGroup>

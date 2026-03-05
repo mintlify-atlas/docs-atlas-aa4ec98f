@@ -1,0 +1,634 @@
+---
+title: HuggingFace Integration
+description: Log and deploy HuggingFace transformers models with MLflow
+---
+
+MLflow provides native integration with HuggingFace Transformers, enabling seamless logging, versioning, and deployment of transformer models and pipelines.
+
+## Installation
+
+```bash
+pip install mlflow transformers
+```
+
+## Quick Start
+
+```python
+import mlflow
+import transformers
+
+# Create a pipeline
+pipeline = transformers.pipeline(
+    task="text-classification",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+# Log the pipeline
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="text_classifier",
+        input_example="MLflow is great!"
+    )
+
+# Load and use
+loaded_pipeline = mlflow.transformers.load_model(
+    "runs:/abc123/text_classifier"
+)
+result = loaded_pipeline("This is amazing!")
+```
+
+## Logging Models
+
+### Log a Pipeline
+
+```python
+import mlflow.transformers
+import transformers
+from mlflow.models import infer_signature
+
+# Create pipeline
+pipeline = transformers.pipeline(
+    "sentiment-analysis",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+# Create signature
+input_example = "MLflow makes ML easier"
+output = pipeline(input_example)
+signature = infer_signature(input_example, output)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="sentiment_model",
+        signature=signature,
+        input_example=input_example,
+        registered_model_name="sentiment_analyzer"
+    )
+```
+
+### Log Model Components
+
+```python
+import mlflow.transformers
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+
+# Load components
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+with mlflow.start_run():
+    # Log as components dictionary
+    components = {
+        "model": model,
+        "tokenizer": tokenizer
+    }
+    
+    mlflow.transformers.log_model(
+        transformers_model=components,
+        name="model",
+        task="text-classification"
+    )
+```
+
+### Save a Model
+
+```python
+import mlflow.transformers
+
+pipeline = transformers.pipeline("text-generation", model="gpt2")
+
+mlflow.transformers.save_model(
+    transformers_model=pipeline,
+    path="./saved_model",
+    task="text-generation"
+)
+```
+
+### Load a Model
+
+```python
+import mlflow.transformers
+
+# Load native pipeline
+pipeline = mlflow.transformers.load_model("runs:/abc123/model")
+result = pipeline("Once upon a time")
+
+# Load as PyFunc
+import mlflow.pyfunc
+pyfunc_model = mlflow.pyfunc.load_model("runs:/abc123/model")
+result = pyfunc_model.predict("Once upon a time")
+```
+
+## Supported Tasks
+
+MLflow supports all HuggingFace pipeline tasks:
+
+### Text Tasks
+
+```python
+import mlflow.transformers
+import transformers
+
+# Text Classification
+classifier = transformers.pipeline(
+    "text-classification",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+# Question Answering
+qa = transformers.pipeline(
+    "question-answering",
+    model="distilbert-base-cased-distilled-squad"
+)
+
+# Text Generation
+generator = transformers.pipeline(
+    "text-generation",
+    model="gpt2"
+)
+
+# Summarization
+summarizer = transformers.pipeline(
+    "summarization",
+    model="facebook/bart-large-cnn"
+)
+
+# Translation
+translator = transformers.pipeline(
+    "translation_en_to_fr",
+    model="t5-small"
+)
+
+# Named Entity Recognition
+ner = transformers.pipeline(
+    "ner",
+    model="dbmdz/bert-large-cased-finetuned-conll03-english"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(classifier, "classifier")
+    mlflow.transformers.log_model(qa, "qa_model")
+    mlflow.transformers.log_model(generator, "generator")
+```
+
+### Vision Tasks
+
+```python
+import transformers
+import mlflow.transformers
+
+# Image Classification
+image_classifier = transformers.pipeline(
+    "image-classification",
+    model="google/vit-base-patch16-224"
+)
+
+# Object Detection
+object_detector = transformers.pipeline(
+    "object-detection",
+    model="facebook/detr-resnet-50"
+)
+
+# Image Segmentation
+segmenter = transformers.pipeline(
+    "image-segmentation",
+    model="facebook/detr-resnet-50-panoptic"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(image_classifier, "image_model")
+```
+
+### Audio Tasks
+
+```python
+import transformers
+import mlflow.transformers
+
+# Automatic Speech Recognition
+asr = transformers.pipeline(
+    "automatic-speech-recognition",
+    model="facebook/wav2vec2-base-960h"
+)
+
+# Audio Classification
+audio_classifier = transformers.pipeline(
+    "audio-classification",
+    model="superb/hubert-large-superb-er"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(asr, "asr_model")
+```
+
+## LLM Inference Tasks
+
+MLflow provides special support for LLM-style inference:
+
+### Chat Completions
+
+```python
+import mlflow.transformers
+import transformers
+
+pipeline = transformers.pipeline(
+    "text-generation",
+    model="microsoft/DialoGPT-medium"
+)
+
+with mlflow.start_run():
+    # Log with LLM chat task
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="chat_model",
+        task="llm/v1/chat"  # Special LLM task
+    )
+
+# Load and use with OpenAI-compatible format
+loaded = mlflow.pyfunc.load_model("runs:/abc123/chat_model")
+
+messages = [
+    {"role": "user", "content": "Hello, how are you?"}
+]
+response = loaded.predict(messages)
+```
+
+### Text Completions
+
+```python
+import mlflow.transformers
+
+pipeline = transformers.pipeline("text-generation", model="gpt2")
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="completion_model",
+        task="llm/v1/completions"
+    )
+
+loaded = mlflow.pyfunc.load_model("runs:/abc123/completion_model")
+result = loaded.predict("The future of AI is")
+```
+
+### Embeddings
+
+```python
+import mlflow.transformers
+import transformers
+
+pipeline = transformers.pipeline(
+    "feature-extraction",
+    model="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="embedding_model",
+        task="llm/v1/embeddings"
+    )
+
+loaded = mlflow.pyfunc.load_model("runs:/abc123/embedding_model")
+embeddings = loaded.predict(["MLflow is great", "Transformers are powerful"])
+```
+
+## Fine-Tuned Models
+
+### Log Fine-Tuned Model
+
+```python
+import mlflow.transformers
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments
+)
+
+# Load pre-trained model
+model = AutoModelForSequenceClassification.from_pretrained(
+    "distilbert-base-uncased",
+    num_labels=2
+)
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+# Fine-tune
+training_args = TrainingArguments(
+    output_dir="./results",
+    num_train_epochs=3,
+    per_device_train_batch_size=16
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset
+)
+
+with mlflow.start_run():
+    # Train
+    trainer.train()
+    
+    # Log training metrics
+    for log in trainer.state.log_history:
+        for key, value in log.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(key, value, step=log.get('step', 0))
+    
+    # Create pipeline with fine-tuned model
+    pipeline = transformers.pipeline(
+        "text-classification",
+        model=model,
+        tokenizer=tokenizer
+    )
+    
+    # Log model
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="fine_tuned_model"
+    )
+```
+
+## PEFT Models (LoRA, QLoRA)
+
+```python
+import mlflow.transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import get_peft_model, LoraConfig
+
+# Load base model
+model = AutoModelForCausalLM.from_pretrained("gpt2")
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+# Apply PEFT/LoRA
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["c_attn"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM"
+)
+
+model = get_peft_model(model, peft_config)
+
+# Train PEFT model...
+
+with mlflow.start_run():
+    # Log PEFT adapter
+    pipeline = transformers.pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer
+    )
+    
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="peft_model"
+    )
+    # PEFT adapters are automatically detected and saved
+```
+
+## Model Cards
+
+MLflow preserves model cards from HuggingFace Hub:
+
+```python
+import mlflow.transformers
+
+pipeline = transformers.pipeline(
+    "text-classification",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="model"
+    )
+    # Model card is automatically downloaded and saved
+```
+
+## Inference Configuration
+
+```python
+import mlflow.transformers
+
+pipeline = transformers.pipeline("text-generation", model="gpt2")
+
+# Set inference configuration
+inference_config = {
+    "max_length": 100,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "do_sample": True
+}
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="model",
+        model_config=inference_config
+    )
+
+# Configuration is applied during inference
+loaded = mlflow.pyfunc.load_model("runs:/abc123/model")
+result = loaded.predict("Once upon a time")  # Uses saved config
+```
+
+## Device Management
+
+```python
+import mlflow.transformers
+import torch
+
+pipeline = transformers.pipeline(
+    "text-generation",
+    model="gpt2",
+    device=0 if torch.cuda.is_available() else -1  # GPU if available
+)
+
+with mlflow.start_run():
+    mlflow.log_param("device", "cuda" if torch.cuda.is_available() else "cpu")
+    mlflow.transformers.log_model(pipeline, "model")
+
+# Load on specific device
+import os
+os.environ["MLFLOW_DEFAULT_PREDICTION_DEVICE"] = "cuda:0"
+loaded = mlflow.transformers.load_model("runs:/abc123/model")
+```
+
+## Advanced Features
+
+### Custom Components
+
+```python
+import mlflow.transformers
+from transformers import AutoModel, AutoTokenizer, AutoConfig
+
+model_name = "bert-base-uncased"
+
+# Load custom components
+config = AutoConfig.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name, config=config)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+# Custom feature extractor
+from transformers import AutoFeatureExtractor
+feature_extractor = AutoFeatureExtractor.from_pretrained("facebook/wav2vec2-base")
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model={
+            "model": model,
+            "tokenizer": tokenizer,
+            "feature_extractor": feature_extractor
+        },
+        name="custom_model",
+        task="feature-extraction"
+    )
+```
+
+### Model from Local Checkpoint
+
+```python
+import mlflow.transformers
+
+# Load from local directory
+pipeline = transformers.pipeline(
+    "text-classification",
+    model="./my_fine_tuned_model",  # Local path
+    tokenizer="./my_fine_tuned_model"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=pipeline,
+        name="local_model"
+    )
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Include Task Type">
+    Specify the task for proper pipeline reconstruction:
+    
+    ```python
+    mlflow.transformers.log_model(
+        pipeline,
+        "model",
+        task="text-classification"
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Log Input Examples">
+    Provide representative input examples:
+    
+    ```python
+    mlflow.transformers.log_model(
+        pipeline,
+        "model",
+        input_example="Example text for classification"
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Set Inference Config">
+    Define inference parameters for consistency:
+    
+    ```python
+    mlflow.transformers.log_model(
+        pipeline,
+        "model",
+        model_config={"max_length": 50, "temperature": 0.7}
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Model Registry">
+    Register important models for production:
+    
+    ```python
+    mlflow.transformers.log_model(
+        pipeline,
+        "model",
+        registered_model_name="production_classifier"
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m runs:/<run_id>/model -p 5000
+```
+
+Test:
+
+```python
+import requests
+
+response = requests.post(
+    "http://127.0.0.1:5000/invocations",
+    json={"inputs": "MLflow makes deployment easy!"}
+)
+print(response.json())
+```
+
+### Batch Inference
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+model = mlflow.pyfunc.load_model("runs:/<run_id>/model")
+
+# Batch predictions
+texts = pd.DataFrame({
+    "text": [
+        "This is great!",
+        "I love this product.",
+        "Not satisfied with the service."
+    ]
+})
+
+results = model.predict(texts)
+```
+
+## Limitations
+
+- Some custom components may require manual dependency specification
+- Very large models (>10GB) may have storage/loading performance considerations
+- PEFT adapters require base model availability
+- Custom preprocessing logic may need to be wrapped in a custom PyFunc
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LangChain Integration" icon="link" href="/integrations/langchain">
+    Build LLM applications with LangChain
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and manage transformer models
+  </Card>
+  
+  <Card title="Model Deployment" icon="rocket" href="/deployment">
+    Deploy models to production
+  </Card>
+  
+  <Card title="PyTorch Integration" icon="fire" href="/integrations/pytorch">
+    Track PyTorch training
+  </Card>
+</CardGroup>

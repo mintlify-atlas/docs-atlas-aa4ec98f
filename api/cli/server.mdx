@@ -1,0 +1,263 @@
+---
+title: mlflow server
+description: Run the MLflow tracking server with built-in security middleware
+---
+
+Run the MLflow tracking server with built-in security middleware.
+
+The server listens on http://localhost:5000 by default and only accepts connections from the local machine. To let the server accept connections from other machines, you will need to pass `--host 0.0.0.0` to listen on all network interfaces (or a specific interface address).
+
+See the [MLflow Server Security documentation](https://mlflow.org/docs/latest/tracking/server-security.html) for detailed guidance on security configurations.
+
+## Synopsis
+
+```bash
+mlflow server [OPTIONS]
+```
+
+## Options
+
+### Backend Configuration
+
+<ParamField path="--backend-store-uri" type="string">
+  URI to persist experiment and run data. Accepts SQLAlchemy-compatible database connection strings (e.g. `sqlite:///path/to/file.db`) or local filesystem URIs (e.g. `file:///absolute/path/to/directory`). Defaults to `./mlruns`.
+  
+  **Environment variable:** `MLFLOW_BACKEND_STORE_URI`
+</ParamField>
+
+<ParamField path="--registry-store-uri" type="string">
+  URI to persist registered models. Accepts SQLAlchemy-compatible database connection strings. If not specified, `backend-store-uri` is used.
+  
+  **Environment variable:** `MLFLOW_REGISTRY_STORE_URI`
+</ParamField>
+
+<ParamField path="--default-artifact-root" type="string">
+  Directory to store artifacts for any new experiments. Required for SQL backend stores. By default, uses the mlflow-artifacts URI proxy if `--serve-artifacts` is enabled, otherwise uses `./mlruns`.
+  
+  **Environment variable:** `MLFLOW_DEFAULT_ARTIFACT_ROOT`
+</ParamField>
+
+### Artifact Storage
+
+<ParamField path="--serve-artifacts" type="boolean">
+  Enable proxied artifact serving. When enabled, artifacts are served through the tracking server rather than directly from storage.
+  
+  **Environment variable:** `MLFLOW_SERVE_ARTIFACTS`
+</ParamField>
+
+<ParamField path="--artifacts-only" type="boolean">
+  Configure the server for proxied artifact serving only. Disables tracking functionality (run creation, metric logging, etc.).
+  
+  **Environment variable:** `MLFLOW_ARTIFACTS_ONLY`
+</ParamField>
+
+<ParamField path="--artifacts-destination" type="string">
+  Base artifact location for upload/download/list requests (e.g. `s3://my-bucket`). Only applies when the server streams artifacts and the experiment's artifact root is http or mlflow-artifacts URI.
+  
+  **Environment variable:** `MLFLOW_ARTIFACTS_DESTINATION`
+</ParamField>
+
+### Network Configuration
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Host address to bind the server to. Use `0.0.0.0` to accept connections from any network interface.
+  
+  **Environment variable:** `MLFLOW_HOST`
+</ParamField>
+
+<ParamField path="--port" type="integer" default="5000">
+  Port to bind the server to.
+  
+  **Environment variable:** `MLFLOW_PORT`
+</ParamField>
+
+<ParamField path="--workers" type="integer">
+  Number of worker processes. Defaults to 4 for gunicorn, 1 for waitress.
+  
+  **Environment variable:** `MLFLOW_WORKERS`
+</ParamField>
+
+### Security Configuration
+
+<ParamField path="--allowed-hosts" type="string">
+  Comma-separated list of allowed Host header values. Use `*` to allow all (not recommended for production).
+  
+  **Environment variable:** `MLFLOW_SERVER_ALLOWED_HOSTS`
+</ParamField>
+
+<ParamField path="--cors-allowed-origins" type="string">
+  Comma-separated list of allowed CORS origins. Use `*` to allow all (only for local development).
+  
+  **Environment variable:** `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS`
+</ParamField>
+
+<ParamField path="--disable-security-middleware" type="boolean">
+  Disable security middleware (not recommended). Leaves the server vulnerable to attacks.
+  
+  **Environment variable:** `MLFLOW_SERVER_DISABLE_SECURITY_MIDDLEWARE`
+</ParamField>
+
+<ParamField path="--x-frame-options" type="string">
+  Set the X-Frame-Options header value. Common values: `DENY`, `SAMEORIGIN`.
+  
+  **Environment variable:** `MLFLOW_SERVER_X_FRAME_OPTIONS`
+</ParamField>
+
+### Server Options
+
+<ParamField path="--static-prefix" type="string">
+  Prefix for all static paths. Must begin with `/` and not end with `/`.
+  
+  **Environment variable:** `MLFLOW_STATIC_PREFIX`
+</ParamField>
+
+<ParamField path="--gunicorn-opts" type="string">
+  Additional command line options for gunicorn (not available on Windows).
+  
+  **Environment variable:** `MLFLOW_GUNICORN_OPTS`
+</ParamField>
+
+<ParamField path="--waitress-opts" type="string">
+  Additional command line options for waitress-serve.
+</ParamField>
+
+<ParamField path="--uvicorn-opts" type="string">
+  Additional command line options for uvicorn (default server).
+  
+  **Environment variable:** `MLFLOW_UVICORN_OPTS`
+</ParamField>
+
+<ParamField path="--expose-prometheus" type="string">
+  Directory path where metrics will be stored. Activates prometheus exporter to expose metrics on `/metrics` endpoint.
+  
+  **Environment variable:** `MLFLOW_EXPOSE_PROMETHEUS`
+</ParamField>
+
+<ParamField path="--app-name" type="string">
+  Application name for the tracking server. Defaults to `mlflow.server:app`.
+</ParamField>
+
+<ParamField path="--dev" type="boolean">
+  Enable development mode with debug logging and auto-reload. For development only. Cannot be used with `--gunicorn-opts` or `--uvicorn-opts`. Not supported on Windows.
+</ParamField>
+
+### Secrets Cache
+
+<ParamField path="--secrets-cache-ttl" type="integer" default="60">
+  Server-side secrets cache time-to-live in seconds (10-300). Controls how long decrypted secrets are cached in memory.
+</ParamField>
+
+<ParamField path="--secrets-cache-max-size" type="integer" default="1000">
+  Server-side secrets cache maximum entries (1-10000). LRU eviction when exceeded.
+</ParamField>
+
+### Workspace Configuration
+
+<ParamField path="--workspace-store-uri" type="string">
+  Workspace provider backend URI for workspace CRUD APIs and request routing. Defaults to backend store URI.
+  
+  **Environment variable:** `MLFLOW_WORKSPACE_STORE_URI`
+</ParamField>
+
+<ParamField path="--enable-workspaces/--disable-workspaces" type="boolean" default="false">
+  Enable backwards compatible workspaces mode for logical isolation of experiments, registered models, and prompts.
+</ParamField>
+
+## Examples
+
+### Basic Local Server
+
+```bash
+# Start server on default port 5000
+mlflow server
+```
+
+### Server with SQLite Backend
+
+```bash
+# Use SQLite database for backend storage
+mlflow server \
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./artifacts
+```
+
+### Production Server with PostgreSQL
+
+```bash
+# Production setup with PostgreSQL and S3 artifacts
+mlflow server \
+  --backend-store-uri postgresql://user:password@localhost/mlflow \
+  --default-artifact-root s3://my-mlflow-bucket \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --allowed-hosts "mlflow.example.com,*.internal.example.com" \
+  --cors-allowed-origins "https://app.example.com"
+```
+
+### Server with Artifact Proxying
+
+```bash
+# Enable artifact serving through the tracking server
+mlflow server \
+  --backend-store-uri postgresql://user:password@localhost/mlflow \
+  --serve-artifacts \
+  --artifacts-destination s3://my-bucket/artifacts
+```
+
+### Artifacts-Only Server
+
+```bash
+# Run in artifacts-only mode (no tracking)
+mlflow server \
+  --artifacts-only \
+  --artifacts-destination s3://my-bucket
+```
+
+### Development Server
+
+```bash
+# Development mode with auto-reload
+mlflow server --dev
+```
+
+### Server with Custom Workers
+
+```bash
+# Configure number of workers
+mlflow server \
+  --backend-store-uri sqlite:///mlflow.db \
+  --host 0.0.0.0 \
+  --workers 8
+```
+
+### Server with Gunicorn Options
+
+```bash
+# Pass custom gunicorn options
+mlflow server \
+  --backend-store-uri postgresql://localhost/mlflow \
+  --gunicorn-opts "--timeout 120 --keep-alive 5"
+```
+
+### Secure Production Setup
+
+```bash
+# Production server with security configuration
+mlflow server \
+  --backend-store-uri postgresql://user:password@db.internal/mlflow \
+  --default-artifact-root s3://mlflow-artifacts \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --allowed-hosts "mlflow.company.com" \
+  --cors-allowed-origins "https://app.company.com,https://notebook.company.com" \
+  --x-frame-options DENY \
+  --workers 4
+```
+
+## Notes
+
+- The `mlflow ui` command is an alias for `mlflow server`
+- Security middleware is enabled by default for protection against attacks
+- Use `--disable-security-middleware` only in trusted environments
+- Security parameters (`--allowed-hosts`, `--cors-allowed-origins`) only work with the default uvicorn server
+- On Windows, gunicorn is not available; the server will use waitress or uvicorn instead

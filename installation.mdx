@@ -1,0 +1,492 @@
+---
+title: Installation Guide
+description: Install MLflow on your platform with pip, Docker, or from source
+---
+
+## Installation via pip
+
+The simplest way to install MLflow is using pip:
+
+```bash
+pip install mlflow
+```
+
+### System Requirements
+
+<Note>
+**Python Version**: MLflow requires Python 3.10 or later
+
+Verify your Python version:
+```bash
+python --version
+```
+</Note>
+
+### Installing Specific Versions
+
+Install a specific version of MLflow:
+
+```bash
+pip install mlflow==3.10.0
+```
+
+Upgrade to the latest version:
+
+```bash
+pip install --upgrade mlflow
+```
+
+## Installation with Extra Dependencies
+
+MLflow provides optional dependency groups for specific use cases:
+
+<Tabs>
+  <Tab title="GenAI & LLMs">
+    Install MLflow with GenAI dependencies for LLM tracing and evaluation:
+
+    ```bash
+    pip install mlflow[genai]
+    ```
+
+    This includes:
+    - `aiohttp` - Async HTTP support
+    - `boto3` - AWS SDK for Bedrock integration
+    - `tiktoken` - Token counting for OpenAI models
+    - `litellm` - Multi-provider LLM support
+    - `gepa` - Evaluation utilities
+  </Tab>
+
+  <Tab title="Database Support">
+    Install with database backend support:
+
+    ```bash
+    # PostgreSQL
+    pip install mlflow[db]
+
+    # Or install specific database drivers
+    pip install mlflow psycopg2-binary  # PostgreSQL
+    pip install mlflow PyMySQL           # MySQL
+    pip install mlflow pymssql           # SQL Server
+    ```
+  </Tab>
+
+  <Tab title="Cloud Storage">
+    Install with cloud storage support:
+
+    ```bash
+    # AWS S3
+    pip install mlflow[extras]
+
+    # This includes boto3, Google Cloud Storage, and Azure support
+    ```
+  </Tab>
+
+  <Tab title="Databricks">
+    Install with Databricks integration:
+
+    ```bash
+    pip install mlflow[databricks]
+    ```
+
+    This includes:
+    - Azure Data Lake Storage support
+    - Google Cloud Storage
+    - AWS S3 support
+    - Databricks Agents SDK
+  </Tab>
+
+  <Tab title="All Features">
+    Install all optional dependencies:
+
+    ```bash
+    pip install mlflow[extras,genai,db,databricks]
+    ```
+  </Tab>
+</Tabs>
+
+## Installation from Source
+
+For development or to use the latest features:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/mlflow/mlflow.git
+    cd mlflow
+    ```
+  </Step>
+
+  <Step title="Install with uv (recommended)">
+    Using `uv`, a fast Python package manager:
+
+    ```bash
+    # Install uv if you don't have it
+    pip install uv
+
+    # Install MLflow in development mode
+    uv sync
+    ```
+
+    Or using pip:
+
+    ```bash
+    pip install -e .
+    ```
+  </Step>
+
+  <Step title="Install development dependencies (optional)">
+    For contributing to MLflow:
+
+    ```bash
+    uv sync
+    uv pip install -r requirements/test-requirements.txt
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+When installing from source, you'll get the latest development version which may contain unreleased features and potential bugs.
+</Warning>
+
+## Docker Installation
+
+Run MLflow server using Docker:
+
+### Quick Start with Docker
+
+```bash
+docker run -p 5000:5000 \
+  -v $(pwd)/mlruns:/mlflow/mlruns \
+  ghcr.io/mlflow/mlflow:latest \
+  mlflow server --host 0.0.0.0
+```
+
+### Build Custom Docker Image
+
+Create a `Dockerfile`:
+
+```dockerfile Dockerfile
+FROM python:3.10-slim-bullseye
+
+# Install MLflow
+RUN pip install --no-cache mlflow==3.10.0
+
+# Expose the default MLflow port
+EXPOSE 5000
+
+# Set the working directory
+WORKDIR /mlflow
+
+# Run MLflow server
+CMD ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+```
+
+Build and run:
+
+```bash
+docker build -t my-mlflow-server .
+docker run -p 5000:5000 -v $(pwd)/mlruns:/mlflow/mlruns my-mlflow-server
+```
+
+### Docker Compose Setup
+
+For a complete setup with PostgreSQL backend:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: mlflow
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:mlflow@postgres:5432/mlflow
+      MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      - postgres
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
+```
+
+Start the services:
+
+```bash
+docker-compose up -d
+```
+
+## Platform-Specific Notes
+
+<AccordionGroup>
+  <Accordion title="macOS">
+    ### Using Homebrew
+    
+    While MLflow isn't available via Homebrew, you can install Python and pip:
+    
+    ```bash
+    brew install python@3.10
+    pip3 install mlflow
+    ```
+
+    ### Apple Silicon (M1/M2/M3)
+    
+    For best compatibility with ML libraries:
+    
+    ```bash
+    # Install MLflow
+    pip install mlflow
+    
+    # For TensorFlow on Apple Silicon
+    pip install tensorflow-macos
+    pip install tensorflow-metal
+    ```
+  </Accordion>
+
+  <Accordion title="Windows">
+    ### Using pip
+    
+    ```bash
+    pip install mlflow
+    ```
+
+    ### Windows Subsystem for Linux (WSL)
+    
+    For the best experience on Windows, consider using WSL:
+    
+    ```bash
+    # In WSL terminal
+    sudo apt update
+    sudo apt install python3.10 python3-pip
+    pip3 install mlflow
+    ```
+
+    ### Note on Gunicorn
+    
+    <Note>
+    MLflow uses `waitress` instead of `gunicorn` on Windows, as gunicorn is not compatible with Windows.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Linux">
+    ### Ubuntu/Debian
+    
+    ```bash
+    sudo apt update
+    sudo apt install python3.10 python3-pip
+    pip3 install mlflow
+    ```
+
+    ### RHEL/CentOS/Fedora
+    
+    ```bash
+    sudo dnf install python3.10 python3-pip
+    pip3 install mlflow
+    ```
+
+    ### Using System-Wide Installation
+    
+    ```bash
+    sudo pip3 install mlflow
+    ```
+    
+    <Warning>
+    Installing packages system-wide with sudo is not recommended. Use virtual environments instead.
+    </Warning>
+  </Accordion>
+</AccordionGroup>
+
+## Virtual Environments
+
+It's recommended to use virtual environments to isolate MLflow installations:
+
+<CodeGroup>
+```bash venv
+# Create virtual environment
+python -m venv mlflow-env
+
+# Activate (Linux/macOS)
+source mlflow-env/bin/activate
+
+# Activate (Windows)
+mlflow-env\Scripts\activate
+
+# Install MLflow
+pip install mlflow
+```
+
+```bash conda
+# Create conda environment
+conda create -n mlflow-env python=3.10
+
+# Activate environment
+conda activate mlflow-env
+
+# Install MLflow
+pip install mlflow
+```
+
+```bash uv
+# Using uv (fast alternative)
+pip install uv
+
+# Create and activate environment
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+
+# Install MLflow
+uv pip install mlflow
+```
+</CodeGroup>
+
+## Dependency Information
+
+MLflow has the following core dependencies:
+
+### Required Dependencies
+
+- **Flask** - Web framework for the tracking server
+- **SQLAlchemy** - Database abstraction layer
+- **alembic** - Database migration tool
+- **pandas** - Data manipulation
+- **numpy** - Numerical computing
+- **scikit-learn** - Basic ML algorithms
+- **PyYAML** - Configuration file parsing
+- **requests** - HTTP library
+- **protobuf** - Data serialization
+- **click** - CLI framework
+
+### Optional Dependencies by Feature
+
+<Tabs>
+  <Tab title="Database Backends">
+    - `psycopg2-binary` - PostgreSQL support
+    - `PyMySQL` - MySQL support  
+    - `pymssql` - SQL Server support
+  </Tab>
+  
+  <Tab title="Cloud Storage">
+    - `boto3` - AWS S3
+    - `google-cloud-storage` - Google Cloud Storage
+    - `azure-storage-file-datalake` - Azure Data Lake
+  </Tab>
+  
+  <Tab title="GenAI/LLMs">
+    - `openai` - OpenAI API client
+    - `anthropic` - Anthropic API client
+    - `langchain` - LangChain framework
+    - `tiktoken` - Token counting
+  </Tab>
+  
+  <Tab title="Deployment">
+    - `kubernetes` - Kubernetes deployment
+    - `docker` - Docker integration
+    - `mlserver` - MLServer integration
+  </Tab>
+</Tabs>
+
+## Verifying Installation
+
+After installation, verify MLflow is working:
+
+```bash
+# Check version
+mlflow --version
+
+# Start the UI (should open at http://localhost:5000)
+mlflow ui
+```
+
+Test in Python:
+
+```python
+import mlflow
+
+print(f"MLflow version: {mlflow.__version__}")
+
+# Start a test run
+with mlflow.start_run():
+    mlflow.log_param("test", "success")
+    mlflow.log_metric("metric", 1.0)
+    
+print("Installation verified successfully!")
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Import errors after installation">
+    Ensure you're using the correct Python environment:
+    
+    ```bash
+    which python
+    python -c "import mlflow; print(mlflow.__file__)"
+    ```
+  </Accordion>
+
+  <Accordion title="Permission errors on Linux/macOS">
+    Don't use sudo. Instead, use a virtual environment:
+    
+    ```bash
+    python -m venv mlflow-env
+    source mlflow-env/bin/activate
+    pip install mlflow
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection issues">
+    Verify your database URI format:
+    
+    ```bash
+    # PostgreSQL
+    postgresql://user:password@localhost:5432/mlflow
+    
+    # MySQL
+    mysql://user:password@localhost:3306/mlflow
+    
+    # SQLite (default)
+    sqlite:///mlflow.db
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Run your first MLflow experiment in 5 minutes
+  </Card>
+  
+  <Card title="Tracking Server Setup" icon="server" href="https://mlflow.org/docs/latest/ml/tracking/#tracking-setup">
+    Configure MLflow for team collaboration
+  </Card>
+  
+  <Card title="Cloud Deployment" icon="cloud" href="https://mlflow.org/docs/latest/ml/deployment/">
+    Deploy MLflow on AWS, Azure, or GCP
+  </Card>
+  
+  <Card title="Contributing" icon="code" href="https://github.com/mlflow/mlflow/blob/master/CONTRIBUTING.md">
+    Contribute to MLflow development
+  </Card>
+</CardGroup>

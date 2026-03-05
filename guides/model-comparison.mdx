@@ -1,0 +1,439 @@
+---
+title: "Comparing Multiple Models"
+description: "Learn how to compare different machine learning models and select the best one for production"
+---
+
+Comparing different models is essential for selecting the best approach for your problem. MLflow makes it easy to track, compare, and analyze multiple models side-by-side.
+
+## What You'll Learn
+
+- Training and tracking multiple model types
+- Comparing models in the MLflow UI
+- Using MLflow's search and filter APIs
+- Analyzing model performance across datasets
+- Selecting the best model for production
+
+## Prerequisites
+
+```bash
+pip install mlflow scikit-learn xgboost pandas matplotlib
+```
+
+## Setting Up Your Experiment
+
+First, create a dedicated experiment for your model comparison:
+
+```python
+import mlflow
+
+# Create or set experiment
+experiment_name = "model-comparison-tutorial"
+mlflow.set_experiment(experiment_name)
+```
+
+## Comparing Different Model Types
+
+Let's compare several models on the Iris dataset:
+
+<Steps>
+
+<Step title="Prepare the dataset">
+
+```python
+import pandas as pd
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+import numpy as np
+
+# Load dataset
+iris = load_iris()
+X = pd.DataFrame(iris.data, columns=iris.feature_names)
+y = iris.target
+
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+print(f"Training samples: {len(X_train)}")
+print(f"Test samples: {len(X_test)}")
+```
+
+</Step>
+
+<Step title="Create a training function">
+
+```python
+from mlflow.models import infer_signature
+
+def train_and_log_model(model, model_name, X_train, X_test, y_train, y_test):
+    """Train a model and log it with MLflow."""
+    with mlflow.start_run(run_name=model_name):
+        # Train the model
+        model.fit(X_train, y_train)
+        
+        # Make predictions
+        train_preds = model.predict(X_train)
+        test_preds = model.predict(X_test)
+        
+        # Calculate metrics for both train and test sets
+        train_accuracy = accuracy_score(y_train, train_preds)
+        test_accuracy = accuracy_score(y_test, test_preds)
+        test_f1 = f1_score(y_test, test_preds, average='weighted')
+        test_precision = precision_score(y_test, test_preds, average='weighted')
+        test_recall = recall_score(y_test, test_preds, average='weighted')
+        
+        # Log parameters
+        mlflow.log_param("model_type", model_name)
+        if hasattr(model, 'get_params'):
+            for param, value in model.get_params().items():
+                mlflow.log_param(param, value)
+        
+        # Log metrics
+        mlflow.log_metric("train_accuracy", train_accuracy)
+        mlflow.log_metric("test_accuracy", test_accuracy)
+        mlflow.log_metric("test_f1_score", test_f1)
+        mlflow.log_metric("test_precision", test_precision)
+        mlflow.log_metric("test_recall", test_recall)
+        
+        # Check for overfitting
+        overfit_gap = train_accuracy - test_accuracy
+        mlflow.log_metric("overfit_gap", overfit_gap)
+        
+        # Log the model
+        signature = infer_signature(X_train, train_preds)
+        mlflow.sklearn.log_model(
+            model,
+            name="model",
+            signature=signature,
+            input_example=X_train.iloc[:5]
+        )
+        
+        # Log a tag for easy filtering
+        mlflow.set_tag("framework", "scikit-learn")
+        
+        print(f"{model_name}:")
+        print(f"  Train Accuracy: {train_accuracy:.4f}")
+        print(f"  Test Accuracy: {test_accuracy:.4f}")
+        print(f"  Test F1 Score: {test_f1:.4f}")
+        print(f"  Overfitting Gap: {overfit_gap:.4f}\n")
+        
+        return mlflow.active_run().info.run_id
+```
+
+</Step>
+
+<Step title="Train multiple models">
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+
+# Define models to compare
+models = [
+    (LogisticRegression(max_iter=200, random_state=42), "Logistic Regression"),
+    (RandomForestClassifier(n_estimators=100, random_state=42), "Random Forest"),
+    (GradientBoostingClassifier(n_estimators=100, random_state=42), "Gradient Boosting"),
+    (SVC(kernel='rbf', random_state=42), "Support Vector Machine"),
+    (KNeighborsClassifier(n_neighbors=5), "K-Nearest Neighbors"),
+    (DecisionTreeClassifier(max_depth=5, random_state=42), "Decision Tree"),
+]
+
+# Train and log all models
+run_ids = {}
+for model, name in models:
+    run_id = train_and_log_model(model, name, X_train, X_test, y_train, y_test)
+    run_ids[name] = run_id
+```
+
+</Step>
+
+</Steps>
+
+## Analyzing Results Programmatically
+
+Use MLflow's search API to find and compare the best models:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Get the experiment
+experiment = client.get_experiment_by_name("model-comparison-tutorial")
+
+# Search for all runs in the experiment, ordered by test accuracy
+runs = mlflow.search_runs(
+    experiment_ids=[experiment.experiment_id],
+    order_by=["metrics.test_accuracy DESC"]
+)
+
+# Display key metrics for all models
+comparison_df = runs[[
+    "run_id",
+    "params.model_type",
+    "metrics.test_accuracy",
+    "metrics.test_f1_score",
+    "metrics.test_precision",
+    "metrics.test_recall",
+    "metrics.overfit_gap"
+]].copy()
+
+comparison_df.columns = ["Run ID", "Model", "Accuracy", "F1", "Precision", "Recall", "Overfit Gap"]
+
+print("Model Comparison Results:")
+print("="*100)
+print(comparison_df.to_string(index=False))
+print("="*100)
+
+# Find the best model
+best_run = runs.iloc[0]
+print(f"\nBest Model: {best_run['params.model_type']}")
+print(f"Test Accuracy: {best_run['metrics.test_accuracy']:.4f}")
+print(f"Run ID: {best_run['run_id']}")
+```
+
+## Comparing Models with Different Datasets
+
+Let's compare how models perform across training and evaluation datasets:
+
+```python
+import mlflow
+from sklearn.datasets import load_iris
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+
+# Load data
+iris = load_iris()
+iris_df = pd.DataFrame(data=iris.data, columns=iris.feature_names)
+iris_df["quality"] = (iris.target == 2).astype(int)
+
+# Split into train and test
+train_df, test_df = train_test_split(iris_df, test_size=0.2, random_state=42)
+
+with mlflow.start_run(run_name="multi_dataset_comparison") as training_run:
+    # Register training dataset
+    train_dataset = mlflow.data.from_pandas(train_df, name="train")
+    train_x = train_dataset.df.drop(["quality"], axis=1)
+    train_y = train_dataset.df[["quality"]]
+    
+    # Train model
+    model = LogisticRegression(max_iter=200)
+    model.fit(train_x, train_y)
+    
+    # Log model
+    logged_model = mlflow.sklearn.log_model(
+        sk_model=model,
+        name="logistic_regression",
+        input_example=train_x.head()
+    )
+    
+    # Evaluate on training data
+    train_preds = model.predict(train_x)
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    
+    rmse = mean_squared_error(train_y, train_preds, squared=False)
+    mae = mean_absolute_error(train_y, train_preds)
+    r2 = r2_score(train_y, train_preds)
+    
+    # Log metrics linked to dataset and model
+    mlflow.log_metrics(
+        metrics={"rmse": rmse, "r2": r2, "mae": mae},
+        model_id=logged_model.model_id,
+        dataset=train_dataset,
+    )
+    
+    print(f"Training - RMSE: {rmse:.4f}, R2: {r2:.4f}, MAE: {mae:.4f}")
+
+# Evaluate on test set in a separate run
+with mlflow.start_run(run_name="test_evaluation") as evaluation_run:
+    # Register test dataset
+    test_dataset = mlflow.data.from_pandas(test_df, name="test")
+    test_x = test_dataset.df.drop(["quality"], axis=1)
+    test_y = test_dataset.df[["quality"]]
+    
+    # Load the model
+    loaded_model = mlflow.sklearn.load_model(f"models:/{logged_model.model_id}")
+    
+    # Evaluate
+    test_preds = loaded_model.predict(test_x)
+    rmse = mean_squared_error(test_y, test_preds, squared=False)
+    mae = mean_absolute_error(test_y, test_preds)
+    r2 = r2_score(test_y, test_preds)
+    
+    # Log metrics linked to dataset and model
+    mlflow.log_metrics(
+        metrics={"rmse": rmse, "r2": r2, "mae": mae},
+        dataset=test_dataset,
+        model_id=logged_model.model_id,
+    )
+    
+    print(f"Test - RMSE: {rmse:.4f}, R2: {r2:.4f}, MAE: {mae:.4f}")
+
+# Inspect the logged model with all metrics
+logged_model_full = mlflow.get_logged_model(logged_model.model_id)
+print(f"\nModel ID: {logged_model_full.model_id}")
+print(f"Parameters: {logged_model_full.params}")
+print(f"Metrics: {logged_model_full.metrics}")
+```
+
+## Using the MLflow UI for Comparison
+
+The MLflow UI provides powerful visualization tools:
+
+### Parallel Coordinates Plot
+
+1. Start the MLflow UI:
+   ```bash
+   mlflow ui
+   ```
+
+2. Navigate to your experiment
+
+3. Select multiple runs (use checkboxes)
+
+4. Click **Compare** button
+
+5. View the **Parallel Coordinates Plot** to see:
+   - How parameters affect metrics
+   - Trade-offs between different metrics
+   - Outliers and patterns
+
+### Scatter Plot Comparison
+
+Compare two metrics directly:
+
+1. In the Compare view, switch to **Scatter Plot**
+
+2. Select X-axis metric (e.g., `test_accuracy`)
+
+3. Select Y-axis metric (e.g., `overfit_gap`)
+
+4. Each point represents a model run
+
+## Advanced: Creating a Leaderboard
+
+Create a custom leaderboard with weighted metrics:
+
+```python
+import pandas as pd
+import mlflow
+
+# Get all runs
+runs = mlflow.search_runs(
+    experiment_ids=[experiment.experiment_id],
+    filter_string=""
+)
+
+# Define weights for different metrics
+weights = {
+    'test_accuracy': 0.4,
+    'test_f1_score': 0.3,
+    'test_precision': 0.15,
+    'test_recall': 0.15
+}
+
+# Calculate weighted score
+def calculate_score(row):
+    score = 0
+    for metric, weight in weights.items():
+        metric_col = f"metrics.{metric}"
+        if metric_col in row and pd.notna(row[metric_col]):
+            score += row[metric_col] * weight
+    return score
+
+runs['weighted_score'] = runs.apply(calculate_score, axis=1)
+
+# Create leaderboard
+leaderboard = runs[[
+    "params.model_type",
+    "metrics.test_accuracy",
+    "metrics.test_f1_score",
+    "weighted_score",
+    "run_id"
+]].sort_values('weighted_score', ascending=False)
+
+print("\nModel Leaderboard (by weighted score):")
+print(leaderboard.to_string(index=False))
+```
+
+## Filtering and Searching Runs
+
+MLflow provides powerful filtering capabilities:
+
+```python
+# Find models with accuracy > 0.95
+high_accuracy_runs = mlflow.search_runs(
+    experiment_ids=[experiment.experiment_id],
+    filter_string="metrics.test_accuracy > 0.95"
+)
+
+# Find Random Forest models
+rf_runs = mlflow.search_runs(
+    experiment_ids=[experiment.experiment_id],
+    filter_string="params.model_type = 'Random Forest'"
+)
+
+# Find models with low overfitting
+low_overfit_runs = mlflow.search_runs(
+    experiment_ids=[experiment.experiment_id],
+    filter_string="metrics.overfit_gap < 0.05",
+    order_by=["metrics.test_accuracy DESC"]
+)
+
+print(f"High accuracy models: {len(high_accuracy_runs)}")
+print(f"Random Forest runs: {len(rf_runs)}")
+print(f"Low overfitting models: {len(low_overfit_runs)}")
+```
+
+## Best Practices
+
+- **Use consistent metrics** across all models for fair comparison
+- **Track training time** to consider computational cost
+- **Log dataset information** to understand performance context
+- **Use tags** to mark production candidates
+- **Document model assumptions** in run descriptions
+- **Track model size** for deployment considerations
+
+## Selecting a Model for Production
+
+Consider multiple factors:
+
+```python
+def select_production_model(runs_df):
+    """
+    Select the best model for production based on multiple criteria.
+    """
+    # Filter for minimum accuracy threshold
+    candidates = runs_df[runs_df['metrics.test_accuracy'] > 0.90].copy()
+    
+    # Prefer models with lower overfitting
+    candidates['overfit_penalty'] = candidates['metrics.overfit_gap'] * 0.5
+    candidates['final_score'] = (
+        candidates['metrics.test_accuracy'] - candidates['overfit_penalty']
+    )
+    
+    # Select best candidate
+    best = candidates.sort_values('final_score', ascending=False).iloc[0]
+    
+    return {
+        'model_type': best['params.model_type'],
+        'run_id': best['run_id'],
+        'accuracy': best['metrics.test_accuracy'],
+        'final_score': best['final_score']
+    }
+
+production_model = select_production_model(runs)
+print(f"\nSelected for production: {production_model}")
+```
+
+## Next Steps
+
+- Learn about [production deployment](/guides/production-deployment)
+- Explore [MLflow Model Registry](https://mlflow.org/docs/latest/model-registry.html)
+- Set up [automated model validation](https://mlflow.org/docs/latest/models.html#model-evaluation)

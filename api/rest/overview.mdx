@@ -1,0 +1,187 @@
+---
+title: REST API Overview
+description: Overview of MLflow's REST API for tracking experiments, managing runs, and working with the model registry
+---
+
+## Introduction
+
+The MLflow REST API provides programmatic access to MLflow's experiment tracking, run management, and model registry capabilities. All API endpoints follow RESTful conventions and communicate using JSON.
+
+## Base URL
+
+The base URL for all API endpoints depends on your MLflow tracking server configuration:
+
+```
+http://<tracking-server-host>:<port>/api/2.0/mlflow
+```
+
+For example, if running locally:
+```
+http://localhost:5000/api/2.0/mlflow
+```
+
+## Authentication
+
+MLflow supports multiple authentication methods depending on your deployment:
+
+### Basic Authentication
+
+When using MLflow with the built-in authentication, use HTTP Basic Authentication:
+
+```bash
+curl -u username:password \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+### Token-Based Authentication
+
+For Databricks or when using token-based auth:
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+### No Authentication
+
+By default, MLflow tracking server runs without authentication:
+
+```bash
+curl http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+## Request Format
+
+### GET Requests
+
+For GET requests, pass parameters as query strings:
+
+```bash
+curl "http://localhost:5000/api/2.0/mlflow/experiments/get?experiment_id=1"
+```
+
+### POST Requests
+
+For POST requests, send JSON in the request body:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-experiment"}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/create
+```
+
+## Response Format
+
+All API responses return JSON. Successful responses have a 200 status code and include the requested data.
+
+### Success Response
+
+```json
+{
+  "experiment": {
+    "experiment_id": "1",
+    "name": "my-experiment",
+    "artifact_location": "/mlruns/1",
+    "lifecycle_stage": "active",
+    "creation_time": 1678886400000,
+    "last_update_time": 1678886400000
+  }
+}
+```
+
+### Error Response
+
+Error responses include an error code and message:
+
+```json
+{
+  "error_code": "RESOURCE_DOES_NOT_EXIST",
+  "message": "Experiment with id=999 not found"
+}
+```
+
+## Common Error Codes
+
+| Error Code | Description |
+|------------|-------------|
+| `INVALID_PARAMETER_VALUE` | A request parameter has an invalid value |
+| `RESOURCE_DOES_NOT_EXIST` | The requested resource was not found |
+| `RESOURCE_ALREADY_EXISTS` | Cannot create resource because it already exists |
+| `PERMISSION_DENIED` | User does not have permission for this operation |
+| `INTERNAL_ERROR` | An internal server error occurred |
+| `BAD_REQUEST` | The request is malformed |
+
+## Pagination
+
+Many list endpoints support pagination using `page_token` and `max_results`:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"max_results": 100}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+Response includes a `next_page_token` for retrieving the next page:
+
+```json
+{
+  "experiments": [...],
+  "next_page_token": "eyJvZmZzZXQiOiAxMDB9"
+}
+```
+
+To get the next page:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"max_results": 100, "page_token": "eyJvZmZzZXQiOiAxMDB9"}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+## Filtering and Searching
+
+Many endpoints support SQL-like filter expressions:
+
+```bash
+# Search experiments by name
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"filter": "name LIKE '"'"'test-%'"'"'"}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+
+# Search runs by metrics and params
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"experiment_ids": ["1"], "filter": "metrics.rmse < 0.5 AND params.model = '"'"'xgboost'"'"'"}' \
+  http://localhost:5000/api/2.0/mlflow/runs/search
+```
+
+### Supported Filter Operators
+
+- `=`, `!=` - Equality/inequality
+- `<`, `<=`, `>`, `>=` - Comparison (for numeric values)
+- `LIKE`, `ILIKE` - Pattern matching (case-sensitive/insensitive)
+- `AND` - Logical AND
+
+## Rate Limiting
+
+MLflow does not enforce rate limiting by default. However, when deployed on Databricks or with custom middleware, rate limits may apply. Check your deployment documentation for specific limits.
+
+## API Versioning
+
+The current API version is `2.0`, indicated in the URL path:
+
+```
+/api/2.0/mlflow/...
+```
+
+MLflow maintains backward compatibility within major versions. When breaking changes are necessary, a new API version will be introduced.
+
+## Next Steps
+
+- [Experiments API](/api/rest/experiments) - Create and manage experiments
+- [Runs API](/api/rest/runs) - Track runs, metrics, and parameters
+- [Model Registry API](/api/rest/model-registry) - Manage registered models and versions

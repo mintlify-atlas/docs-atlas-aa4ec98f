@@ -1,0 +1,496 @@
+---
+title: 'Model Registry'
+description: 'Manage, version, and deploy machine learning models with MLflow Model Registry'
+---
+
+## Overview
+
+The MLflow Model Registry provides a centralized model store for managing the full lifecycle of MLflow models. It offers model versioning, stage transitions, and annotations.
+
+## Key Concepts
+
+### Registered Models
+
+A **registered model** is a named collection of model versions. Each version represents a specific iteration of the model.
+
+### Model Versions
+
+Each time you register a model, MLflow creates a new **version**. Versions are numbered sequentially (1, 2, 3, etc.).
+
+### Model Aliases
+
+Model **aliases** are mutable, named references to specific model versions (e.g., "champion", "challenger"). They replace the deprecated stages system.
+
+## Registering Models
+
+### During Training
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from mlflow.models import infer_signature
+
+# Load data
+X, y = load_iris(return_X_y=True)
+
+# Train model
+with mlflow.start_run():
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    
+    # Create signature
+    signature = infer_signature(X, model.predict(X))
+    
+    # Log and register model in one step
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=signature,
+        registered_model_name="IrisClassifier"
+    )
+```
+
+### From Existing Run
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Register model from existing run
+model_uri = "runs:/a1b2c3d4/model"
+model_details = client.create_model_version(
+    name="IrisClassifier",
+    source=model_uri,
+    run_id="a1b2c3d4"
+)
+
+print(f"Model version: {model_details.version}")
+```
+
+### Create Registered Model
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Create new registered model
+client.create_registered_model(
+    name="MyModel",
+    description="Production model for predicting customer churn",
+    tags={"team": "ml-team", "project": "churn-prediction"}
+)
+```
+
+## Managing Model Versions
+
+### List Model Versions
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Get all versions of a model
+model_versions = client.search_model_versions("name='IrisClassifier'")
+
+for version in model_versions:
+    print(f"Version {version.version}")
+    print(f"  Run ID: {version.run_id}")
+    print(f"  Status: {version.status}")
+    print(f"  Created: {version.creation_timestamp}")
+```
+
+### Get Specific Version
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Get specific model version
+model_version = client.get_model_version(
+    name="IrisClassifier",
+    version="3"
+)
+
+print(f"Version: {model_version.version}")
+print(f"Source: {model_version.source}")
+print(f"Description: {model_version.description}")
+```
+
+### Update Model Version
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Update version description
+client.update_model_version(
+    name="IrisClassifier",
+    version="3",
+    description="Improved model with hyperparameter tuning"
+)
+```
+
+## Model Aliases
+
+Aliases provide a better way to manage model lifecycle compared to deprecated stages.
+
+### Set Model Alias
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set alias for a model version
+client.set_registered_model_alias(
+    name="IrisClassifier",
+    alias="champion",
+    version="5"
+)
+
+# Common alias patterns
+client.set_registered_model_alias("IrisClassifier", "challenger", "6")
+client.set_registered_model_alias("IrisClassifier", "staging", "7")
+```
+
+### Get Model by Alias
+
+```python
+import mlflow.pyfunc
+
+# Load model using alias
+model = mlflow.pyfunc.load_model("models:/IrisClassifier@champion")
+
+# Make predictions
+predictions = model.predict(data)
+```
+
+### Delete Model Alias
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Remove alias from model
+client.delete_registered_model_alias(
+    name="IrisClassifier",
+    alias="staging"
+)
+```
+
+## Loading Models
+
+### Load by Version
+
+<CodeGroup>
+```python Specific Version
+import mlflow.pyfunc
+
+# Load specific version
+model = mlflow.pyfunc.load_model("models:/IrisClassifier/3")
+
+# Make predictions
+predictions = model.predict(test_data)
+```
+
+```python By Alias
+import mlflow.pyfunc
+
+# Load using alias
+model = mlflow.pyfunc.load_model("models:/IrisClassifier@champion")
+
+predictions = model.predict(test_data)
+```
+
+```python Latest Version
+import mlflow.pyfunc
+
+# Load latest version
+model = mlflow.pyfunc.load_model("models:/IrisClassifier/latest")
+
+predictions = model.predict(test_data)
+```
+</CodeGroup>
+
+### Load Native Format
+
+```python
+import mlflow.sklearn
+import mlflow.pytorch
+import mlflow.tensorflow
+
+# Load as native scikit-learn model
+sklearn_model = mlflow.sklearn.load_model("models:/IrisClassifier@champion")
+
+# Load as native PyTorch model
+pytorch_model = mlflow.pytorch.load_model("models:/MyPyTorchModel/2")
+
+# Load as native TensorFlow model
+tf_model = mlflow.tensorflow.load_model("models:/MyTFModel/1")
+```
+
+## Model Metadata and Tags
+
+### Add Tags to Model Version
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set tags on model version
+client.set_model_version_tag(
+    name="IrisClassifier",
+    version="3",
+    key="validation_accuracy",
+    value="0.98"
+)
+
+client.set_model_version_tag(
+    name="IrisClassifier",
+    version="3",
+    key="deployment_date",
+    value="2024-03-15"
+)
+```
+
+### Add Tags to Registered Model
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set tags on registered model
+client.set_registered_model_tag(
+    name="IrisClassifier",
+    key="task",
+    value="classification"
+)
+
+client.set_registered_model_tag(
+    name="IrisClassifier",
+    key="framework",
+    value="scikit-learn"
+)
+```
+
+## Searching Models
+
+### Search Registered Models
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Search all registered models
+models = client.search_registered_models()
+
+for model in models:
+    print(f"Name: {model.name}")
+    print(f"Description: {model.description}")
+    print(f"Tags: {model.tags}")
+```
+
+### Search Model Versions
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Search model versions with filter
+versions = client.search_model_versions(
+    filter_string="name='IrisClassifier' AND tags.validated='true'"
+)
+
+for version in versions:
+    print(f"Version: {version.version}")
+    print(f"Status: {version.status}")
+```
+
+## Deleting Models
+
+### Delete Model Version
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Delete specific version
+client.delete_model_version(
+    name="IrisClassifier",
+    version="2"
+)
+```
+
+### Delete Registered Model
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Delete entire registered model (all versions)
+client.delete_registered_model(name="IrisClassifier")
+```
+
+## Complete Example: Model Lifecycle
+
+```python
+import mlflow
+import mlflow.sklearn
+from mlflow.tracking import MlflowClient
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from mlflow.models import infer_signature
+
+# Initialize client
+client = MlflowClient()
+
+# Load and prepare data
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Create registered model if it doesn't exist
+try:
+    client.create_registered_model(
+        name="IrisClassifier",
+        description="Random Forest model for Iris classification",
+        tags={"framework": "sklearn", "task": "classification"}
+    )
+except:
+    print("Model already exists")
+
+# Train and register first version
+with mlflow.start_run(run_name="baseline_model") as run:
+    # Train model
+    model = RandomForestClassifier(n_estimators=50, random_state=42)
+    model.fit(X_train, y_train)
+    
+    # Evaluate
+    predictions = model.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+    
+    # Log metrics and parameters
+    mlflow.log_param("n_estimators", 50)
+    mlflow.log_metric("accuracy", accuracy)
+    
+    # Log model
+    signature = infer_signature(X_train, model.predict(X_train))
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=signature,
+        registered_model_name="IrisClassifier"
+    )
+    
+    # Set as staging
+    version = 1
+    client.set_registered_model_alias("IrisClassifier", "staging", str(version))
+    client.set_model_version_tag("IrisClassifier", str(version), "validation_status", "passed")
+
+# Train improved version
+with mlflow.start_run(run_name="improved_model") as run:
+    # Train with more estimators
+    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
+    model.fit(X_train, y_train)
+    
+    # Evaluate
+    predictions = model.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+    
+    # Log metrics and parameters
+    mlflow.log_param("n_estimators", 100)
+    mlflow.log_param("max_depth", 10)
+    mlflow.log_metric("accuracy", accuracy)
+    
+    # Log model
+    signature = infer_signature(X_train, model.predict(X_train))
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=signature,
+        registered_model_name="IrisClassifier"
+    )
+    
+    # Promote to production if better
+    version = 2
+    if accuracy > 0.95:
+        client.set_registered_model_alias("IrisClassifier", "champion", str(version))
+        client.set_model_version_tag("IrisClassifier", str(version), "promoted", "true")
+        print(f"Model version {version} promoted to champion with accuracy: {accuracy:.3f}")
+
+# Load and use production model
+champion_model = mlflow.pyfunc.load_model("models:/IrisClassifier@champion")
+production_predictions = champion_model.predict(X_test)
+print(f"Production model accuracy: {accuracy_score(y_test, production_predictions):.3f}")
+```
+
+## Model Registry with Unity Catalog
+
+For Databricks Unity Catalog, use three-level namespacing:
+
+```python
+import mlflow
+
+# Set registry URI to Unity Catalog
+mlflow.set_registry_uri("databricks-uc")
+
+# Register model with catalog.schema.model format
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        registered_model_name="main.ml_models.iris_classifier"
+    )
+
+# Load model from Unity Catalog
+model = mlflow.pyfunc.load_model(
+    "models:/main.ml_models.iris_classifier@champion"
+)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Aliases" icon="bookmark">
+    Use aliases like "champion" and "challenger" instead of deprecated stages
+  </Card>
+  
+  <Card title="Document Versions" icon="file-lines">
+    Add descriptions and tags to model versions for tracking changes
+  </Card>
+  
+  <Card title="Version Everything" icon="code-branch">
+    Register all significant model iterations for full lineage tracking
+  </Card>
+  
+  <Card title="Test Before Promoting" icon="vial">
+    Validate models in staging before promoting to production
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Deployment" icon="rocket" href="https://mlflow.org/docs/latest/deployment/index.html">
+    Deploy registered models to production
+  </Card>
+  
+  <Card title="Model Tracking" icon="chart-line" href="/ml/tracking">
+    Learn about experiment tracking
+  </Card>
+</CardGroup>

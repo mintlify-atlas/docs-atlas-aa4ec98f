@@ -1,0 +1,496 @@
+---
+title: Experiments API
+description: REST API endpoints for creating and managing MLflow experiments
+---
+
+## Create Experiment
+
+Create a new experiment with a unique name.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-experiment",
+    "artifact_location": "s3://my-bucket/mlflow",
+    "tags": [
+      {"key": "team", "value": "ml-platform"},
+      {"key": "project", "value": "recommendation"}
+    ]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/experiments/create
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/create",
+    json={
+        "name": "my-experiment",
+        "artifact_location": "s3://my-bucket/mlflow",
+        "tags": [
+            {"key": "team", "value": "ml-platform"},
+            {"key": "project", "value": "recommendation"}
+        ]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/create`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Experiment name. Must be unique across all experiments.
+</ParamField>
+
+<ParamField body="artifact_location" type="string">
+  Location where artifacts for the experiment are stored. If not provided, the server selects an appropriate default. Can be a local path or distributed file system path (e.g., `s3://bucket/path`, `dbfs:/path`).
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Collection of tags to set on the experiment. Each tag is a key-value pair.
+  
+  <Expandable title="Tag object">
+    <ParamField body="key" type="string" required>
+      Tag key. Maximum 250 bytes.
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      Tag value. Maximum 5000 bytes.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="experiment_id" type="string">
+  Unique identifier for the newly created experiment.
+</ResponseField>
+
+```json Response Example
+{
+  "experiment_id": "123456789"
+}
+```
+
+---
+
+## Get Experiment
+
+Retrieve metadata for an experiment by ID.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/experiments/get?experiment_id=1"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/experiments/get",
+    params={"experiment_id": "1"}
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/experiments/get`
+
+### Query Parameters
+
+<ParamField query="experiment_id" type="string" required>
+  ID of the experiment to retrieve.
+</ParamField>
+
+### Response
+
+<ResponseField name="experiment" type="object">
+  <Expandable title="Experiment object">
+    <ResponseField name="experiment_id" type="string">
+      Unique identifier for the experiment.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Human readable name that identifies the experiment.
+    </ResponseField>
+    <ResponseField name="artifact_location" type="string">
+      Location where artifacts for the experiment are stored.
+    </ResponseField>
+    <ResponseField name="lifecycle_stage" type="string">
+      Current life cycle stage: `active` or `deleted`.
+    </ResponseField>
+    <ResponseField name="creation_time" type="integer">
+      Unix timestamp in milliseconds when the experiment was created.
+    </ResponseField>
+    <ResponseField name="last_update_time" type="integer">
+      Unix timestamp in milliseconds of the last update.
+    </ResponseField>
+    <ResponseField name="tags" type="array">
+      Array of tag objects with `key` and `value` properties.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Response Example
+{
+  "experiment": {
+    "experiment_id": "1",
+    "name": "my-experiment",
+    "artifact_location": "/mlruns/1",
+    "lifecycle_stage": "active",
+    "creation_time": 1678886400000,
+    "last_update_time": 1678886400000,
+    "tags": [
+      {"key": "team", "value": "ml-platform"}
+    ]
+  }
+}
+```
+
+---
+
+## Get Experiment By Name
+
+Retrieve metadata for an experiment by name.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/experiments/get-by-name?experiment_name=my-experiment"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/experiments/get-by-name",
+    params={"experiment_name": "my-experiment"}
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/experiments/get-by-name`
+
+### Query Parameters
+
+<ParamField query="experiment_name" type="string" required>
+  Name of the experiment. If multiple deleted experiments share the same name, returns one of them.
+</ParamField>
+
+### Response
+
+Returns an `experiment` object with the same structure as [Get Experiment](#get-experiment).
+
+---
+
+## Search Experiments
+
+Search for experiments matching filter criteria.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": "name LIKE '"'"'%recommendation%'"'"' AND tags.team = '"'"'ml-platform'"'"'",
+    "max_results": 100,
+    "order_by": ["name ASC"]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/experiments/search
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/search",
+    json={
+        "filter": "name LIKE '%recommendation%' AND tags.team = 'ml-platform'",
+        "max_results": 100,
+        "order_by": ["name ASC"]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/search` or `GET /api/2.0/mlflow/experiments/search`
+
+### Request Body / Query Parameters
+
+<ParamField body="filter" type="string">
+  Filter expression using SQL-like syntax. Supports filtering by `name` and `tags.<key>`. 
+  
+  Examples:
+  - `name LIKE 'test-%'`
+  - `tags.team = 'ml-platform'`
+  - `name ILIKE '%prod%' AND tags.priority = 'high'`
+  
+  Supported operators: `=`, `!=`, `LIKE`, `ILIKE`, `AND`
+</ParamField>
+
+<ParamField body="max_results" type="integer">
+  Maximum number of experiments to return. Servers support at least 1,000. Defaults to a server-selected value.
+</ParamField>
+
+<ParamField body="page_token" type="string">
+  Token for pagination to retrieve the next page of results.
+</ParamField>
+
+<ParamField body="order_by" type="array">
+  List of columns for ordering results. Can include `name` and `experiment_id` with optional `DESC` or `ASC` (default). Example: `["name DESC", "experiment_id ASC"]`
+</ParamField>
+
+<ParamField body="view_type" type="string">
+  Filter by lifecycle stage:
+  - `ACTIVE_ONLY` (default) - Only active experiments
+  - `DELETED_ONLY` - Only deleted experiments  
+  - `ALL` - Both active and deleted
+</ParamField>
+
+### Response
+
+<ResponseField name="experiments" type="array">
+  Array of experiment objects matching the search criteria.
+</ResponseField>
+
+<ResponseField name="next_page_token" type="string">
+  Token to retrieve the next page of experiments. Empty if no more results.
+</ResponseField>
+
+```json Response Example
+{
+  "experiments": [
+    {
+      "experiment_id": "1",
+      "name": "recommendation-model",
+      "artifact_location": "/mlruns/1",
+      "lifecycle_stage": "active",
+      "creation_time": 1678886400000,
+      "last_update_time": 1678886400000,
+      "tags": [{"key": "team", "value": "ml-platform"}]
+    }
+  ],
+  "next_page_token": ""
+}
+```
+
+---
+
+## Update Experiment
+
+Update an experiment's name.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "1",
+    "new_name": "updated-experiment-name"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/experiments/update
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/update",
+    json={
+        "experiment_id": "1",
+        "new_name": "updated-experiment-name"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/update`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string" required>
+  ID of the experiment to update.
+</ParamField>
+
+<ParamField body="new_name" type="string">
+  New name for the experiment. Must be unique.
+</ParamField>
+
+### Response
+
+Returns an empty response object `{}`.
+
+---
+
+## Delete Experiment
+
+Mark an experiment for deletion. This also marks associated runs, metrics, params, and tags for deletion.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"experiment_id": "1"}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/delete
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/delete",
+    json={"experiment_id": "1"}
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/delete`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string" required>
+  ID of the experiment to delete.
+</ParamField>
+
+### Response
+
+Returns an empty response object `{}`.
+
+---
+
+## Restore Experiment
+
+Restore a deleted experiment. This also restores associated runs, metrics, params, and tags.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"experiment_id": "1"}' \
+  http://localhost:5000/api/2.0/mlflow/experiments/restore
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/restore",
+    json={"experiment_id": "1"}
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/restore`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string" required>
+  ID of the experiment to restore.
+</ParamField>
+
+### Response
+
+Returns an empty response object `{}`.
+
+---
+
+## Set Experiment Tag
+
+Set a tag on an experiment. Tags are metadata that can be updated.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "1",
+    "key": "environment",
+    "value": "production"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/experiments/set-experiment-tag
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/set-experiment-tag",
+    json={
+        "experiment_id": "1",
+        "key": "environment",
+        "value": "production"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/set-experiment-tag`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string" required>
+  ID of the experiment.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key. Maximum 250 bytes. If a tag with this key already exists, its value will be overwritten.
+</ParamField>
+
+<ParamField body="value" type="string" required>
+  Tag value. Maximum 5000 bytes.
+</ParamField>
+
+### Response
+
+Returns an empty response object `{}`.
+
+---
+
+## Delete Experiment Tag
+
+Delete a tag from an experiment.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "1",
+    "key": "environment"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/experiments/delete-experiment-tag
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/experiments/delete-experiment-tag",
+    json={
+        "experiment_id": "1",
+        "key": "environment"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/experiments/delete-experiment-tag`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string" required>
+  ID of the experiment.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key to delete. Must be an exact match. Maximum 255 bytes.
+</ParamField>
+
+### Response
+
+Returns an empty response object `{}`.

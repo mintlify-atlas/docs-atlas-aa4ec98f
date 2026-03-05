@@ -1,0 +1,423 @@
+---
+title: 'Experiment Tracking'
+description: 'Track experiments, parameters, metrics, and artifacts with MLflow'
+---
+
+## Overview
+
+MLflow Tracking provides a comprehensive API for logging parameters, metrics, and artifacts during machine learning experiments. It helps you organize and compare different training runs.
+
+## Basic Concepts
+
+### Experiments and Runs
+
+An **experiment** is a collection of runs for a specific task. A **run** represents a single execution of your ML code, recording parameters, metrics, models, and artifacts.
+
+```python
+import mlflow
+
+# Set the experiment
+mlflow.set_experiment("my-experiment")
+
+# Start a run
+with mlflow.start_run():
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_metric("accuracy", 0.95)
+```
+
+## Setting Up Experiments
+
+### Create or Set an Experiment
+
+<CodeGroup>
+```python By Name
+import mlflow
+
+# Create experiment if it doesn't exist, or set it as active
+experiment = mlflow.set_experiment("Social NLP Experiments")
+
+print(f"Experiment ID: {experiment.experiment_id}")
+print(f"Artifact Location: {experiment.artifact_location}")
+print(f"Lifecycle Stage: {experiment.lifecycle_stage}")
+```
+
+```python By ID
+import mlflow
+
+# Set experiment by ID
+experiment = mlflow.set_experiment(experiment_id="1")
+```
+</CodeGroup>
+
+<Note>
+On Databricks, experiment names must be absolute paths, e.g., `/Users/<username>/my-experiment`
+</Note>
+
+### Configure Tracking URI
+
+```python
+import mlflow
+
+# Set tracking URI to a remote server
+mlflow.set_tracking_uri("http://localhost:5000")
+
+# Set tracking URI to local directory
+mlflow.set_tracking_uri("file:///path/to/mlruns")
+
+# Get current tracking URI
+tracking_uri = mlflow.get_tracking_uri()
+print(f"Tracking URI: {tracking_uri}")
+```
+
+## Managing Runs
+
+### Start and End Runs
+
+<CodeGroup>
+```python Context Manager (Recommended)
+import mlflow
+
+# Automatically manages run lifecycle
+with mlflow.start_run() as run:
+    mlflow.log_param("alpha", 0.5)
+    mlflow.log_metric("rmse", 0.89)
+    print(f"Run ID: {run.info.run_id}")
+# Run automatically ends when exiting the context
+```
+
+```python Manual Start/End
+import mlflow
+
+# Manually start and end run
+mlflow.start_run()
+mlflow.log_param("alpha", 0.5)
+mlflow.log_metric("rmse", 0.89)
+mlflow.end_run()
+```
+</CodeGroup>
+
+### Nested Runs
+
+```python
+import mlflow
+
+# Parent run
+with mlflow.start_run(run_name="parent_run") as parent_run:
+    mlflow.log_param("parent_param", "value")
+    
+    # Child run 1
+    with mlflow.start_run(run_name="child_run_1", nested=True):
+        mlflow.log_param("child_param", "value1")
+        mlflow.log_metric("accuracy", 0.92)
+    
+    # Child run 2
+    with mlflow.start_run(run_name="child_run_2", nested=True):
+        mlflow.log_param("child_param", "value2")
+        mlflow.log_metric("accuracy", 0.94)
+```
+
+## Logging Parameters
+
+### Single Parameters
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log individual parameters
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_param("batch_size", 32)
+    mlflow.log_param("optimizer", "adam")
+```
+
+### Multiple Parameters
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log multiple parameters at once
+    params = {
+        "learning_rate": 0.01,
+        "batch_size": 32,
+        "epochs": 100,
+        "optimizer": "adam",
+        "dropout_rate": 0.2
+    }
+    mlflow.log_params(params)
+```
+
+## Logging Metrics
+
+### Single Metrics
+
+```python
+import mlflow
+import numpy as np
+from sklearn.metrics import mean_squared_error, r2_score
+
+with mlflow.start_run():
+    # Training loop
+    predictions = model.predict(X_test)
+    
+    # Log metrics
+    rmse = np.sqrt(mean_squared_error(y_test, predictions))
+    r2 = r2_score(y_test, predictions)
+    
+    mlflow.log_metric("rmse", rmse)
+    mlflow.log_metric("r2_score", r2)
+```
+
+### Multiple Metrics
+
+```python
+import mlflow
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+with mlflow.start_run():
+    predictions = model.predict(X_test)
+    
+    metrics = {
+        "accuracy": accuracy_score(y_test, predictions),
+        "precision": precision_score(y_test, predictions, average="weighted"),
+        "recall": recall_score(y_test, predictions, average="weighted"),
+        "f1_score": f1_score(y_test, predictions, average="weighted")
+    }
+    mlflow.log_metrics(metrics)
+```
+
+### Metrics Over Time
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    for epoch in range(100):
+        train_loss = train_epoch(model, train_loader)
+        val_loss = validate_epoch(model, val_loader)
+        
+        # Log metrics at each step
+        mlflow.log_metric("train_loss", train_loss, step=epoch)
+        mlflow.log_metric("val_loss", val_loss, step=epoch)
+```
+
+## Logging Artifacts
+
+### Log Files
+
+```python
+import mlflow
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    # Create and save a plot
+    plt.plot(history['loss'])
+    plt.savefig("loss_curve.png")
+    
+    # Log the plot as an artifact
+    mlflow.log_artifact("loss_curve.png")
+    
+    # Log a configuration file
+    with open("config.yaml", "w") as f:
+        yaml.dump(config, f)
+    mlflow.log_artifact("config.yaml")
+```
+
+### Log Directories
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log entire directory
+    mlflow.log_artifacts("outputs/", artifact_path="model_outputs")
+```
+
+### Log Dictionaries and Text
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log dictionary as JSON
+    results = {
+        "best_params": {"C": 1.0, "max_iter": 100},
+        "best_score": 0.95
+    }
+    mlflow.log_dict(results, "results.json")
+    
+    # Log text content
+    mlflow.log_text("Model training completed successfully", "status.txt")
+```
+
+## Complete Example: Scikit-learn Training
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import ElasticNet
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+import mlflow
+import mlflow.sklearn
+from mlflow.models import infer_signature
+
+# Load data
+data = pd.read_csv("wine-quality.csv")
+train, test = train_test_split(data, test_size=0.25, random_state=42)
+
+train_x = train.drop(["quality"], axis=1)
+test_x = test.drop(["quality"], axis=1)
+train_y = train[["quality"]]
+test_y = test[["quality"]]
+
+# Set experiment
+mlflow.set_experiment("wine-quality-experiment")
+
+# Training parameters
+alpha = 0.5
+l1_ratio = 0.5
+
+with mlflow.start_run():
+    # Train model
+    model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=42)
+    model.fit(train_x, train_y)
+    
+    # Make predictions
+    predictions = model.predict(test_x)
+    
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(test_y, predictions))
+    mae = mean_absolute_error(test_y, predictions)
+    r2 = r2_score(test_y, predictions)
+    
+    # Log parameters
+    mlflow.log_param("alpha", alpha)
+    mlflow.log_param("l1_ratio", l1_ratio)
+    
+    # Log metrics
+    mlflow.log_metric("rmse", rmse)
+    mlflow.log_metric("mae", mae)
+    mlflow.log_metric("r2", r2)
+    
+    # Create signature
+    signature = infer_signature(train_x, predictions)
+    
+    # Log model
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=signature,
+        registered_model_name="ElasticnetWineModel"
+    )
+    
+    print(f"ElasticNet model (alpha={alpha}, l1_ratio={l1_ratio})")
+    print(f"  RMSE: {rmse}")
+    print(f"  MAE: {mae}")
+    print(f"  R2: {r2}")
+```
+
+## Using MlflowClient
+
+For lower-level control, use the `MlflowClient` API:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Create experiment
+experiment_id = client.create_experiment("my-experiment")
+
+# Create run
+run = client.create_run(experiment_id)
+run_id = run.info.run_id
+
+# Log parameters and metrics
+client.log_param(run_id, "param1", "value1")
+client.log_metric(run_id, "metric1", 0.89)
+
+# Set tags
+client.set_tag(run_id, "model_type", "regression")
+
+# Get run details
+run_data = client.get_run(run_id)
+print(f"Parameters: {run_data.data.params}")
+print(f"Metrics: {run_data.data.metrics}")
+
+# End run
+client.set_terminated(run_id)
+```
+
+## Searching Runs
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Search runs with filter
+runs = client.search_runs(
+    experiment_ids=["1"],
+    filter_string="metrics.rmse < 0.8",
+    order_by=["metrics.rmse ASC"],
+    max_results=10
+)
+
+for run in runs:
+    print(f"Run ID: {run.info.run_id}")
+    print(f"RMSE: {run.data.metrics['rmse']}")
+    print(f"Parameters: {run.data.params}")
+```
+
+## Tags and Notes
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    # Set tags for organization
+    mlflow.set_tag("model_type", "random_forest")
+    mlflow.set_tag("team", "ml-team")
+    mlflow.set_tag("version", "v1.0")
+    
+    # Add run description
+    mlflow.set_tag("mlflow.note.content", "Baseline model with default parameters")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Context Managers" icon="code">
+    Always use `with mlflow.start_run()` to ensure runs are properly closed
+  </Card>
+  
+  <Card title="Log Everything" icon="database">
+    Log all parameters, even default values, for complete reproducibility
+  </Card>
+  
+  <Card title="Meaningful Names" icon="tag">
+    Use descriptive experiment and run names for easy identification
+  </Card>
+  
+  <Card title="Track Metrics Over Time" icon="chart-line">
+    Use the `step` parameter to track metrics across epochs or iterations
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Autologging" icon="wand-magic-sparkles" href="/ml/autologging">
+    Automatically log parameters and metrics
+  </Card>
+  
+  <Card title="Model Registry" icon="book" href="/ml/model-registry">
+    Manage and version your models
+  </Card>
+  
+  <Card title="Metrics" icon="chart-bar" href="/ml/metrics">
+    Advanced metrics logging and evaluation
+  </Card>
+</CardGroup>

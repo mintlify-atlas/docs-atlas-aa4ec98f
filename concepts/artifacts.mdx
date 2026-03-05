@@ -1,0 +1,597 @@
+---
+title: Artifacts
+description: Learn about MLflow Artifacts for storing and managing files, models, and outputs
+---
+
+## What are Artifacts?
+
+Artifacts are files or directories associated with an MLflow run. They can include:
+
+- Trained models (serialized model files)
+- Data files (datasets, feature sets)
+- Images and visualizations (plots, charts, diagrams)
+- Metadata files (configuration, metrics summaries)
+- Text files (logs, reports, notes)
+- Any other file output from your ML code
+
+Artifacts are stored in a backend-agnostic way, supporting local filesystems, cloud storage (S3, Azure Blob, GCS), and other storage systems.
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:1-3`
+
+## Artifact Storage
+
+### Artifact URI
+
+Each run has an `artifact_uri` that points to the root location where artifacts are stored:
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    # Get the artifact URI for this run
+    artifact_uri = run.info.artifact_uri
+    print(f"Artifacts will be stored at: {artifact_uri}")
+    
+    # Can also use the fluent API
+    artifact_uri = mlflow.get_artifact_uri()
+    
+    # Get URI for specific artifact
+    model_uri = mlflow.get_artifact_uri("model.pkl")
+```
+
+Common artifact URI formats:
+- Local: `file:///path/to/mlruns/0/abc123/artifacts`
+- S3: `s3://bucket-name/path/to/artifacts`
+- Azure: `wasbs://container@account.blob.core.windows.net/path`
+- GCS: `gs://bucket-name/path/to/artifacts`
+- HDFS: `hdfs://namenode:port/path/to/artifacts`
+
+### Configuring Artifact Storage
+
+Set the artifact location when creating an experiment:
+
+```python
+import mlflow
+
+# Create experiment with custom artifact location
+experiment_id = mlflow.create_experiment(
+    name="my-experiment",
+    artifact_location="s3://my-bucket/mlflow-artifacts"
+)
+
+mlflow.set_experiment(experiment_id=experiment_id)
+```
+
+## Logging Artifacts
+
+### Log Single Files
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log a single file
+    mlflow.log_artifact("model.pkl")
+    
+    # Log to a specific subdirectory
+    mlflow.log_artifact("confusion_matrix.png", "plots")
+    # Stored at: artifacts/plots/confusion_matrix.png
+```
+
+### Log Directories
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log entire directory
+    mlflow.log_artifacts("output_files/")
+    
+    # Log directory to specific path
+    mlflow.log_artifacts("checkpoints/", "model_checkpoints")
+    # Contents stored at: artifacts/model_checkpoints/
+```
+
+### Log Dictionaries as JSON
+
+```python
+import mlflow
+
+config = {
+    "learning_rate": 0.01,
+    "batch_size": 32,
+    "optimizer": "adam"
+}
+
+with mlflow.start_run():
+    mlflow.log_dict(config, "config.json")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:195-218`
+
+### Log Text Content
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log text content directly
+    mlflow.log_text("Training completed successfully", "status.txt")
+    
+    # Log multi-line text
+    notes = """
+    Model Performance Summary:
+    - Accuracy: 95%
+    - F1 Score: 0.93
+    - Training Time: 2 hours
+    """
+    mlflow.log_text(notes, "summary.txt")
+```
+
+### Log Images
+
+```python
+import mlflow
+from PIL import Image
+import numpy as np
+
+with mlflow.start_run():
+    # Log PIL Image
+    img = Image.new("RGB", (100, 100), color="red")
+    mlflow.log_image(img, "sample.png")
+    
+    # Log NumPy array as image
+    array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+    mlflow.log_image(array, "random_image.png")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:229-272`
+
+### Log Figures
+
+```python
+import mlflow
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    # Create matplotlib figure
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3], [1, 4, 9])
+    ax.set_title("Training Loss")
+    
+    # Log the figure
+    mlflow.log_figure(fig, "loss_curve.png")
+    
+    # Also works with plotly
+    import plotly.graph_objects as go
+    
+    plotly_fig = go.Figure(
+        data=go.Scatter(x=[1, 2, 3], y=[1, 4, 9])
+    )
+    mlflow.log_figure(plotly_fig, "interactive_plot.html")
+```
+
+### Log Tables
+
+```python
+import mlflow
+import pandas as pd
+
+with mlflow.start_run():
+    # Log pandas DataFrame as table
+    df = pd.DataFrame({
+        "feature": ["age", "income", "education"],
+        "importance": [0.45, 0.32, 0.23]
+    })
+    
+    mlflow.log_table(df, "feature_importance.json")
+```
+
+## Downloading Artifacts
+
+### Download with Fluent API
+
+```python
+from mlflow.artifacts import download_artifacts
+
+# Download specific artifact by run_id
+local_path = download_artifacts(
+    run_id="abc123def456",
+    artifact_path="model.pkl"
+)
+
+# Download entire artifact directory
+local_dir = download_artifacts(
+    run_id="abc123def456",
+    artifact_path="plots/"
+)
+
+# Download to specific destination
+download_artifacts(
+    run_id="abc123def456",
+    artifact_path="model",
+    dst_path="/local/path/to/save"
+)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:23-106`
+
+### Download Using URIs
+
+```python
+from mlflow.artifacts import download_artifacts
+
+# Download using runs URI
+local_path = download_artifacts(
+    artifact_uri="runs:/abc123/model"
+)
+
+# Download from model registry
+local_path = download_artifacts(
+    artifact_uri="models:/my-model/Production"
+)
+
+# Download from S3
+local_path = download_artifacts(
+    artifact_uri="s3://bucket/path/to/artifact"
+)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:34-52`
+
+## Listing Artifacts
+
+```python
+from mlflow.artifacts import list_artifacts
+
+# List artifacts for a run
+artifacts = list_artifacts(run_id="abc123")
+
+for artifact in artifacts:
+    print(f"Path: {artifact.path}")
+    print(f"Is Dir: {artifact.is_dir}")
+    print(f"Size: {artifact.file_size} bytes")
+
+# List artifacts in subdirectory
+artifacts = list_artifacts(
+    run_id="abc123",
+    artifact_path="plots/"
+)
+
+# List using URI
+artifacts = list_artifacts(
+    artifact_uri="runs:/abc123/model"
+)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:109-158`
+
+## Loading Artifact Contents
+
+### Load Text
+
+```python
+from mlflow.artifacts import load_text
+
+# Load text file content
+content = load_text("runs:/abc123/notes.txt")
+print(content)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:161-192`
+
+### Load JSON Dictionary
+
+```python
+from mlflow.artifacts import load_dict
+
+# Load JSON as dictionary
+config = load_dict("runs:/abc123/config.json")
+print(f"Learning rate: {config['learning_rate']}")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:195-226`
+
+### Load Images
+
+```python
+from mlflow.artifacts import load_image
+
+# Load image as PIL Image object
+image = load_image("runs:/abc123/plot.png")
+image.show()
+
+# Get image properties
+print(f"Size: {image.size}")
+print(f"Mode: {image.mode}")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/artifacts/__init__.py:229-272`
+
+## Artifact Repositories
+
+MLflow uses artifact repositories to abstract storage backends:
+
+```python
+from mlflow.tracking.artifact_utils import get_artifact_repository
+
+# Get artifact repository for a run
+artifact_repo = get_artifact_repository(
+    artifact_uri="runs:/abc123"
+)
+
+# Download artifacts
+local_path = artifact_repo.download_artifacts("model")
+
+# List artifacts
+artifacts = artifact_repo.list_artifacts("plots")
+
+# Log artifacts (if you have write access)
+artifact_repo.log_artifact("local_file.txt", "remote_path")
+```
+
+## Artifact URIs
+
+MLflow supports various URI schemes for referencing artifacts:
+
+### Runs URI
+
+Reference artifacts from a specific run:
+
+```python
+# Format: runs:/<run_id>/<artifact_path>
+artifact_uri = "runs:/abc123def456/model.pkl"
+artifact_uri = "runs:/abc123def456/plots/confusion_matrix.png"
+```
+
+### Models URI
+
+Reference artifacts from registered models:
+
+```python
+# By version
+model_uri = "models:/my-model/1"
+
+# By stage
+model_uri = "models:/my-model/Production"
+
+# By alias
+model_uri = "models:/my-model@champion"
+
+# With specific artifact path
+artifact_uri = "models:/my-model/1/path/to/artifact"
+```
+
+### Cloud Storage URIs
+
+Direct cloud storage references:
+
+```python
+# S3
+s3_uri = "s3://my-bucket/path/to/artifact"
+
+# Azure Blob Storage
+azure_uri = "wasbs://container@account.blob.core.windows.net/path"
+
+# Google Cloud Storage
+gcs_uri = "gs://my-bucket/path/to/artifact"
+```
+
+## Async Artifact Logging
+
+For better performance, enable asynchronous artifact logging:
+
+```python
+import mlflow
+import os
+
+# Enable async artifact logging
+os.environ["MLFLOW_ENABLE_ASYNC_LOGGING"] = "true"
+
+with mlflow.start_run():
+    # Artifacts are logged asynchronously in background
+    for i in range(100):
+        mlflow.log_artifact(f"output_{i}.txt")
+    
+    # Flush to ensure all artifacts are uploaded
+    mlflow.flush_artifact_async_logging()
+```
+
+## Working with Large Artifacts
+
+### Chunked Downloads
+
+For large files, artifacts can be downloaded in chunks:
+
+```python
+from mlflow.artifacts import download_artifacts
+
+# Download large model
+local_path = download_artifacts(
+    artifact_uri="runs:/abc123/large_model",
+    dst_path="./models/"
+)
+```
+
+### Streaming Logs
+
+Stream logs in real-time during training:
+
+```python
+import mlflow
+import time
+
+with mlflow.start_run():
+    # Stream logs to artifact
+    with mlflow.log_stream("training.log") as stream:
+        for epoch in range(100):
+            log_message = f"Epoch {epoch}: loss=0.{100-epoch}\n"
+            stream.write(log_message)
+            time.sleep(0.1)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Organize Artifacts in Subdirectories">
+    Use meaningful subdirectories to organize different types of artifacts:
+    
+    ```python
+    mlflow.log_artifact("model.pkl", "models")
+    mlflow.log_artifact("plot.png", "visualizations")
+    mlflow.log_artifact("metrics.json", "results")
+    mlflow.log_artifact("config.yaml", "configs")
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Appropriate Logging Functions">
+    Choose the right function for your artifact type:
+    
+    ```python
+    # For dictionaries/configs
+    mlflow.log_dict(config, "config.json")
+    
+    # For text
+    mlflow.log_text(notes, "notes.txt")
+    
+    # For plots
+    mlflow.log_figure(fig, "plot.png")
+    
+    # For tabular data
+    mlflow.log_table(df, "results.json")
+    ```
+  </Accordion>
+  
+  <Accordion title="Clean Up Local Files">
+    MLflow logs artifacts by copying them. Clean up temporary files after logging:
+    
+    ```python
+    import os
+    import mlflow
+    from mlflow.utils.file_utils import TempDir
+    
+    with mlflow.start_run():
+        with TempDir() as tmp:
+            output_file = tmp.path("output.txt")
+            # Generate artifact
+            with open(output_file, "w") as f:
+                f.write("results")
+            # Log artifact
+            mlflow.log_artifact(output_file)
+        # Temp directory automatically cleaned up
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Async Logging for Performance">
+    When logging many artifacts, use async logging:
+    
+    ```python
+    import os
+    os.environ["MLFLOW_ENABLE_ASYNC_LOGGING"] = "true"
+    
+    # Your logging code...
+    
+    # Flush before ending run
+    mlflow.flush_artifact_async_logging()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+<CodeGroup>
+```python Save Model Artifacts
+import mlflow
+import joblib
+
+with mlflow.start_run():
+    # Train model
+    model = train_model()
+    
+    # Save and log model
+    joblib.dump(model, "model.pkl")
+    mlflow.log_artifact("model.pkl", "model")
+    
+    # Log model metadata
+    mlflow.log_dict({
+        "model_type": "RandomForest",
+        "n_estimators": 100
+    }, "model/metadata.json")
+```
+
+```python Save Training Plots
+import mlflow
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    history = train_model()
+    
+    # Create plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    ax1.plot(history["loss"])
+    ax1.set_title("Training Loss")
+    
+    ax2.plot(history["accuracy"])
+    ax2.set_title("Training Accuracy")
+    
+    # Log plots
+    mlflow.log_figure(fig, "plots/training_history.png")
+```
+
+```python Save Evaluation Results
+import mlflow
+import pandas as pd
+from sklearn.metrics import classification_report
+
+with mlflow.start_run():
+    predictions = model.predict(X_test)
+    
+    # Create classification report
+    report = classification_report(
+        y_test, predictions, output_dict=True
+    )
+    
+    # Log as JSON
+    mlflow.log_dict(report, "results/classification_report.json")
+    
+    # Log as table
+    report_df = pd.DataFrame(report).transpose()
+    mlflow.log_table(report_df, "results/classification_table.json")
+```
+</CodeGroup>
+
+## Artifact File Info
+
+Artifacts are represented as `FileInfo` objects when listing:
+
+```python
+from mlflow.artifacts import list_artifacts
+from mlflow.entities.file_info import FileInfo
+
+artifacts = list_artifacts(run_id="abc123")
+
+for artifact in artifacts:
+    print(f"Path: {artifact.path}")
+    print(f"Is Directory: {artifact.is_dir}")
+    print(f"File Size: {artifact.file_size}")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/file_info.py`
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Models" icon="cube" href="./models">
+    Learn about model artifacts
+  </Card>
+  <Card title="Runs" icon="play" href="./runs">
+    Understand run artifact storage
+  </Card>
+  <Card title="Tracking" icon="chart-mixed" href="./tracking">
+    Track artifacts during experiments
+  </Card>
+  <Card title="Experiments" icon="flask" href="./experiments">
+    Organize artifacts by experiment
+  </Card>
+</CardGroup>

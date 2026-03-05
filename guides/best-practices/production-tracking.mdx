@@ -1,0 +1,629 @@
+---
+title: Production Tracking Best Practices
+description: Best practices for tracking models in production, monitoring performance, and maintaining observability
+---
+
+## Overview
+
+Production tracking extends beyond training to monitor deployed models, track predictions, detect drift, and maintain system health. MLflow provides comprehensive tools for production observability.
+
+## Production Run Tracking
+
+### Create Dedicated Production Experiments
+
+Separate production inference from training experiments:
+
+```python
+import mlflow
+
+# Set up production experiment
+mlflow.set_experiment("/production/fraud-detection-inference")
+
+with mlflow.start_run(run_name="inference_batch_2024_03_15"):
+    # Load production model
+    model = mlflow.pyfunc.load_model("models:/fraud_detector@champion")
+    
+    # Run inference
+    predictions = model.predict(batch_data)
+    
+    # Log production metrics
+    mlflow.log_metrics({
+        "batch_size": len(batch_data),
+        "inference_time_ms": inference_time * 1000,
+        "avg_prediction_confidence": predictions.mean(),
+        "high_risk_predictions": (predictions > 0.8).sum()
+    })
+```
+
+<Accordion title="Why separate production experiments">
+Separate production experiments provide:
+- Clear distinction between training and serving
+- Focused monitoring and alerting
+- Different access control and retention policies
+- Easier audit trails for compliance
+- Reduced noise in training experiment views
+</Accordion>
+
+### Tag Production Runs Appropriately
+
+Use comprehensive tagging for production context:
+
+```python
+import mlflow
+import socket
+import os
+
+with mlflow.start_run():
+    mlflow.set_tags({
+        "environment": "production",
+        "deployment_type": "batch",
+        "model_alias": "champion",
+        "service_name": "fraud-detection-api",
+        "hostname": socket.gethostname(),
+        "region": os.getenv("AWS_REGION", "us-west-2"),
+        "kubernetes_pod": os.getenv("POD_NAME"),
+        "version": "1.2.3"
+    })
+```
+
+## Model Performance Monitoring
+
+### Track Prediction Distributions
+
+Monitor prediction distributions to detect drift:
+
+```python
+import mlflow
+import numpy as np
+
+with mlflow.start_run():
+    predictions = model.predict(batch_data)
+    
+    # Log distribution statistics
+    mlflow.log_metrics({
+        "pred_mean": np.mean(predictions),
+        "pred_std": np.std(predictions),
+        "pred_min": np.min(predictions),
+        "pred_max": np.max(predictions),
+        "pred_p50": np.percentile(predictions, 50),
+        "pred_p95": np.percentile(predictions, 95),
+        "pred_p99": np.percentile(predictions, 99)
+    })
+    
+    # Log histogram as artifact
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.hist(predictions, bins=50)
+    ax.set_title("Prediction Distribution")
+    mlflow.log_figure(fig, "prediction_distribution.png")
+```
+
+### Log Ground Truth When Available
+
+Track actual outcomes for delayed feedback:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+# Initial prediction run
+with mlflow.start_run(run_name="predictions_batch_001") as run:
+    predictions = model.predict(data)
+    mlflow.log_metric("num_predictions", len(predictions))
+    mlflow.log_dict({"prediction_ids": prediction_ids}, "prediction_ids.json")
+    run_id = run.info.run_id
+
+# Later, when ground truth arrives
+client = MlflowClient()
+with mlflow.start_run(run_id=run_id):
+    # Calculate actual performance
+    from sklearn.metrics import accuracy_score, precision_score, recall_score
+    
+    accuracy = accuracy_score(ground_truth, predictions)
+    precision = precision_score(ground_truth, predictions)
+    recall = recall_score(ground_truth, predictions)
+    
+    mlflow.log_metrics({
+        "production_accuracy": accuracy,
+        "production_precision": precision,
+        "production_recall": recall,
+        "num_ground_truth_labels": len(ground_truth)
+    })
+```
+
+<Accordion title="Delayed feedback patterns">
+For delayed feedback scenarios:
+- Store prediction IDs and timestamps
+- Create placeholder runs for predictions
+- Update runs when ground truth arrives
+- Track feedback latency as a metric
+- Set alerts for drops in feedback rate
+- Compare training metrics vs production metrics
+</Accordion>
+
+### Monitor Model Latency and Resource Usage
+
+Track system performance metrics:
+
+```python
+import mlflow
+import time
+import psutil
+import sys
+
+with mlflow.start_run():
+    # Measure inference time
+    start_time = time.time()
+    predictions = model.predict(batch_data)
+    inference_time = time.time() - start_time
+    
+    # Log performance metrics
+    mlflow.log_metrics({
+        "inference_time_seconds": inference_time,
+        "throughput_samples_per_second": len(batch_data) / inference_time,
+        "latency_per_sample_ms": (inference_time / len(batch_data)) * 1000
+    })
+    
+    # Log resource usage
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    
+    mlflow.log_metrics({
+        "memory_rss_mb": memory_info.rss / 1024 / 1024,
+        "memory_vms_mb": memory_info.vms / 1024 / 1024,
+        "cpu_percent": process.cpu_percent(interval=1.0)
+    })
+```
+
+## Feature Drift Detection
+
+### Track Input Feature Statistics
+
+Monitor feature distributions to detect data drift:
+
+```python
+import mlflow
+import pandas as pd
+import numpy as np
+
+def log_feature_statistics(df, feature_columns):
+    """Log comprehensive feature statistics"""
+    stats = {}
+    
+    for col in feature_columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            stats[f"{col}_mean"] = df[col].mean()
+            stats[f"{col}_std"] = df[col].std()
+            stats[f"{col}_min"] = df[col].min()
+            stats[f"{col}_max"] = df[col].max()
+            stats[f"{col}_missing_pct"] = df[col].isna().mean() * 100
+        else:
+            # Categorical features
+            stats[f"{col}_unique_count"] = df[col].nunique()
+            stats[f"{col}_missing_pct"] = df[col].isna().mean() * 100
+    
+    mlflow.log_metrics(stats)
+    
+    # Save detailed statistics
+    detailed_stats = df[feature_columns].describe().to_dict()
+    mlflow.log_dict(detailed_stats, "feature_statistics.json")
+
+with mlflow.start_run():
+    log_feature_statistics(production_data, feature_columns)
+```
+
+### Compare Against Training Baseline
+
+Implement drift detection by comparing to training distribution:
+
+```python
+import mlflow
+from scipy.stats import ks_2samp
+import numpy as np
+
+def detect_drift(training_data, production_data, features, threshold=0.05):
+    """Detect drift using Kolmogorov-Smirnov test"""
+    drift_results = {}
+    
+    for feature in features:
+        if pd.api.types.is_numeric_dtype(training_data[feature]):
+            # KS test for numeric features
+            statistic, p_value = ks_2samp(
+                training_data[feature].dropna(),
+                production_data[feature].dropna()
+            )
+            
+            drift_results[feature] = {
+                "ks_statistic": statistic,
+                "p_value": p_value,
+                "drift_detected": p_value < threshold
+            }
+    
+    return drift_results
+
+with mlflow.start_run():
+    drift_results = detect_drift(train_df, prod_df, feature_columns)
+    
+    # Log drift metrics
+    for feature, result in drift_results.items():
+        mlflow.log_metrics({
+            f"{feature}_ks_statistic": result["ks_statistic"],
+            f"{feature}_ks_pvalue": result["p_value"]
+        })
+    
+    # Log drift summary
+    drifted_features = [f for f, r in drift_results.items() if r["drift_detected"]]
+    mlflow.log_metrics({
+        "num_drifted_features": len(drifted_features),
+        "drift_percentage": len(drifted_features) / len(drift_results) * 100
+    })
+    
+    mlflow.log_dict(drift_results, "drift_analysis.json")
+    
+    if drifted_features:
+        mlflow.set_tag("drift_alert", "true")
+        mlflow.set_tag("drifted_features", ",".join(drifted_features))
+```
+
+<Accordion title="Drift detection strategies">
+Common drift detection approaches:
+- **Statistical tests**: KS test, Chi-square test, PSI (Population Stability Index)
+- **Distance metrics**: KL divergence, Wasserstein distance
+- **Model-based**: Monitor model confidence, prediction distribution
+- **Threshold setting**: Use validation set to calibrate thresholds
+- **Multi-level monitoring**: Track individual features and overall drift
+</Accordion>
+
+## Prediction Logging and Tracing
+
+### Log Sample Predictions for Debugging
+
+Store representative predictions for analysis:
+
+```python
+import mlflow
+import pandas as pd
+import random
+
+with mlflow.start_run():
+    predictions = model.predict(batch_data)
+    
+    # Sample predictions for logging
+    sample_size = min(100, len(batch_data))
+    sample_indices = random.sample(range(len(batch_data)), sample_size)
+    
+    samples = pd.DataFrame({
+        "input_id": [batch_data.index[i] for i in sample_indices],
+        "prediction": [predictions[i] for i in sample_indices],
+        "features": [batch_data.iloc[i].to_dict() for i in sample_indices]
+    })
+    
+    mlflow.log_table(samples, "prediction_samples.json")
+```
+
+### Implement Prediction Lineage
+
+Track predictions back to model versions and training data:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Get model version info
+model_version = client.get_model_version_by_alias(
+    name="fraud_detector",
+    alias="champion"
+)
+
+with mlflow.start_run():
+    predictions = model.predict(batch_data)
+    
+    # Log lineage information
+    mlflow.set_tags({
+        "model_name": "fraud_detector",
+        "model_version": model_version.version,
+        "model_run_id": model_version.run_id,
+        "data_batch_id": "batch_2024_03_15_001",
+        "data_source": "production_db",
+        "prediction_timestamp": pd.Timestamp.now().isoformat()
+    })
+    
+    # Retrieve and log training data info from model run
+    training_run = client.get_run(model_version.run_id)
+    training_data_version = training_run.data.params.get("data_version")
+    mlflow.set_tag("training_data_version", training_data_version)
+```
+
+## Online and Real-time Tracking
+
+### Batch Metrics for Real-time Serving
+
+For high-throughput services, batch metrics before logging:
+
+```python
+import mlflow
+import time
+from collections import defaultdict
+import threading
+
+class MetricsBatcher:
+    def __init__(self, flush_interval=60):
+        self.metrics = defaultdict(list)
+        self.flush_interval = flush_interval
+        self.last_flush = time.time()
+        self.lock = threading.Lock()
+    
+    def add_metric(self, key, value):
+        with self.lock:
+            self.metrics[key].append(value)
+            
+            if time.time() - self.last_flush > self.flush_interval:
+                self.flush()
+    
+    def flush(self):
+        with self.lock:
+            if not self.metrics:
+                return
+            
+            with mlflow.start_run():
+                for key, values in self.metrics.items():
+                    mlflow.log_metrics({
+                        f"{key}_mean": sum(values) / len(values),
+                        f"{key}_min": min(values),
+                        f"{key}_max": max(values),
+                        f"{key}_count": len(values)
+                    })
+            
+            self.metrics.clear()
+            self.last_flush = time.time()
+
+# Usage in API endpoint
+batcher = MetricsBatcher(flush_interval=60)
+
+def predict_endpoint(data):
+    start = time.time()
+    prediction = model.predict(data)
+    latency = time.time() - start
+    
+    batcher.add_metric("latency_ms", latency * 1000)
+    batcher.add_metric("prediction_confidence", prediction.max())
+    
+    return prediction
+```
+
+### Use Async Logging for Performance
+
+Enable async logging to avoid blocking production code:
+
+```python
+import mlflow
+import os
+
+# Enable async logging
+os.environ["MLFLOW_ENABLE_ASYNC_LOGGING"] = "true"
+
+with mlflow.start_run():
+    # Non-blocking metric logging
+    mlflow.log_metric("prediction_count", 1000)
+    mlflow.log_params({"batch_id": "batch_001"})
+    
+    # Continue without waiting for logging to complete
+    predictions = model.predict(data)
+
+# Flush before shutdown
+mlflow.flush_async_logging()
+```
+
+<Accordion title="Async logging best practices">
+When using async logging:
+- Always flush before application shutdown
+- Set appropriate queue sizes for your workload
+- Monitor for dropped metrics due to queue overflow
+- Use for high-throughput scenarios (>1000 log operations/sec)
+- Combine with batching for optimal performance
+- Test failover behavior
+</Accordion>
+
+## A/B Testing and Experimentation
+
+### Track A/B Test Results
+
+Compare champion vs challenger models:
+
+```python
+import mlflow
+import random
+
+# Load both models
+champion = mlflow.pyfunc.load_model("models:/recommender@champion")
+challenger = mlflow.pyfunc.load_model("models:/recommender@challenger")
+
+champion_metrics = {"predictions": 0, "clicks": 0}
+challenger_metrics = {"predictions": 0, "clicks": 0}
+
+for user_request in requests:
+    # Random assignment
+    if random.random() < 0.5:
+        prediction = champion.predict(user_request)
+        variant = "champion"
+        champion_metrics["predictions"] += 1
+    else:
+        prediction = challenger.predict(user_request)
+        variant = "challenger"
+        challenger_metrics["predictions"] += 1
+    
+    # Track click (simplified)
+    if user_clicked:
+        if variant == "champion":
+            champion_metrics["clicks"] += 1
+        else:
+            challenger_metrics["clicks"] += 1
+
+# Log A/B test results
+with mlflow.start_run(run_name="ab_test_results"):
+    mlflow.log_metrics({
+        "champion_predictions": champion_metrics["predictions"],
+        "champion_clicks": champion_metrics["clicks"],
+        "champion_ctr": champion_metrics["clicks"] / champion_metrics["predictions"],
+        "challenger_predictions": challenger_metrics["predictions"],
+        "challenger_clicks": challenger_metrics["clicks"],
+        "challenger_ctr": challenger_metrics["clicks"] / challenger_metrics["predictions"]
+    })
+```
+
+## System Metrics and Observability
+
+### Enable System Metrics Logging
+
+Track resource utilization automatically:
+
+```python
+import mlflow
+
+# Enable system metrics
+mlflow.enable_system_metrics_logging()
+
+with mlflow.start_run():
+    # System metrics automatically logged:
+    # - CPU usage
+    # - Memory usage
+    # - Disk I/O
+    # - Network I/O
+    # - GPU utilization (if available)
+    
+    predictions = model.predict(large_batch)
+    mlflow.log_metric("batch_size", len(large_batch))
+```
+
+### Integrate with External Monitoring
+
+Bridge MLflow with Prometheus, DataDog, or CloudWatch:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+import requests
+
+def push_to_prometheus(metric_name, value, labels):
+    """Push MLflow metrics to Prometheus Pushgateway"""
+    payload = f"{metric_name}{{{','.join([f'{k}="{v}"' for k, v in labels.items()])}}} {value}\n"
+    requests.post(
+        "http://pushgateway:9091/metrics/job/mlflow",
+        data=payload
+    )
+
+with mlflow.start_run() as run:
+    predictions = model.predict(data)
+    accuracy = compute_accuracy(predictions, labels)
+    
+    # Log to MLflow
+    mlflow.log_metric("production_accuracy", accuracy)
+    
+    # Also push to Prometheus
+    push_to_prometheus(
+        "production_accuracy",
+        accuracy,
+        {"model": "fraud_detector", "version": "3", "env": "prod"}
+    )
+```
+
+## Alerting and Anomaly Detection
+
+### Implement Metric Thresholds
+
+Set up alerts for metric degradation:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+def check_metric_thresholds(run_id, thresholds):
+    """Check if metrics meet threshold requirements"""
+    client = MlflowClient()
+    run = client.get_run(run_id)
+    
+    alerts = []
+    for metric_name, threshold_config in thresholds.items():
+        value = run.data.metrics.get(metric_name)
+        if value is None:
+            continue
+        
+        min_threshold = threshold_config.get("min")
+        max_threshold = threshold_config.get("max")
+        
+        if min_threshold and value < min_threshold:
+            alerts.append(f"{metric_name} ({value}) below threshold ({min_threshold})")
+        if max_threshold and value > max_threshold:
+            alerts.append(f"{metric_name} ({value}) above threshold ({max_threshold})")
+    
+    return alerts
+
+thresholds = {
+    "production_accuracy": {"min": 0.90},
+    "latency_p99_ms": {"max": 100},
+    "error_rate": {"max": 0.01}
+}
+
+with mlflow.start_run() as run:
+    # Log metrics
+    mlflow.log_metrics({...})
+    
+    # Check thresholds
+    alerts = check_metric_thresholds(run.info.run_id, thresholds)
+    
+    if alerts:
+        mlflow.set_tag("alerts", "; ".join(alerts))
+        # Send notifications (email, Slack, PagerDuty, etc.)
+        send_alert_notification(alerts)
+```
+
+## Production Model Metadata
+
+### Track Deployment Information
+
+Log comprehensive deployment context:
+
+```python
+import mlflow
+import platform
+import sys
+
+with mlflow.start_run():
+    mlflow.set_tags({
+        # Environment info
+        "deployment_type": "kubernetes",
+        "namespace": "production",
+        "cluster": "us-west-2-prod",
+        
+        # System info
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "hostname": platform.node(),
+        
+        # Service info
+        "service_version": "2.1.0",
+        "deploy_timestamp": pd.Timestamp.now().isoformat(),
+        "deployed_by": os.getenv("USER"),
+        
+        # Model info
+        "model_alias": "champion",
+        "model_framework": "pytorch",
+        "model_size_mb": "145"
+    })
+```
+
+## Summary
+
+Effective production tracking in MLflow requires:
+- Dedicated production experiments separate from training
+- Comprehensive metric and prediction logging
+- Feature drift detection and monitoring
+- Performance and resource tracking
+- A/B testing infrastructure
+- Integration with external monitoring systems
+- Alerting and anomaly detection
+- Complete deployment metadata
+
+By following these practices, you'll maintain full observability of production models and quickly detect issues before they impact business outcomes.

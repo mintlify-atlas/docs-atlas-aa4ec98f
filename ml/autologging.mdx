@@ -1,0 +1,521 @@
+---
+title: 'Autologging'
+description: 'Automatically log parameters, metrics, and models with MLflow autologging'
+---
+
+## Overview
+
+MLflow autologging automatically captures model parameters, metrics, and artifacts without requiring explicit logging calls. It supports popular ML frameworks including scikit-learn, PyTorch, TensorFlow, and more.
+
+## Supported Frameworks
+
+<CardGroup cols={3}>
+  <Card title="Scikit-learn" icon="brain">
+    Full autologging for estimators, pipelines, and GridSearchCV
+  </Card>
+  <Card title="PyTorch" icon="fire">
+    PyTorch and PyTorch Lightning models
+  </Card>
+  <Card title="TensorFlow" icon="cube">
+    Keras and TensorFlow 2.x models
+  </Card>
+  <Card title="XGBoost" icon="tree">
+    XGBoost training and evaluation
+  </Card>
+  <Card title="LightGBM" icon="lightbulb">
+    LightGBM training and evaluation
+  </Card>
+  <Card title="Others" icon="ellipsis">
+    Spark, CatBoost, and more
+  </Card>
+</CardGroup>
+
+## Scikit-learn Autologging
+
+### Basic Usage
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+
+# Enable autologging
+mlflow.sklearn.autolog()
+
+# Load data
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+# Train model - parameters and metrics are automatically logged
+with mlflow.start_run():
+    model = RandomForestClassifier(n_estimators=100, max_depth=5)
+    model.fit(X_train, y_train)
+```
+
+### What Gets Logged
+
+<AccordionGroup>
+  <Accordion title="Parameters" icon="sliders">
+    All parameters from `model.get_params(deep=True)` including nested estimator parameters
+  </Accordion>
+  
+  <Accordion title="Training Metrics" icon="chart-line">
+    - Training score from `model.score()`
+    - For classifiers: precision, recall, f1-score, accuracy
+    - For classifiers with `predict_proba`: log loss, ROC AUC
+    - For regressors: MSE, RMSE, MAE, R2 score
+  </Accordion>
+  
+  <Accordion title="Post-training Metrics" icon="chart-bar">
+    Metrics from `model.score()` and `sklearn.metrics` functions called after training
+  </Accordion>
+  
+  <Accordion title="Model Artifacts" icon="box">
+    Trained model saved with signature and input example
+  </Accordion>
+</AccordionGroup>
+
+### Autologging Configuration
+
+```python
+import mlflow
+
+mlflow.sklearn.autolog(
+    log_input_examples=True,        # Log input example with model
+    log_model_signatures=True,      # Log model signature
+    log_models=True,                # Log trained models
+    log_datasets=True,              # Log dataset information
+    disable=False,                  # Disable autologging
+    exclusive=False,                # Log only to autolog-created runs
+    disable_for_unsupported_versions=False,
+    silent=False,                   # Suppress warnings
+    max_tuning_runs=5,              # Max child runs for hyperparameter tuning
+    log_post_training_metrics=True, # Log metrics called after training
+    serialization_format="cloudpickle",  # Model serialization format
+    registered_model_name=None,     # Auto-register model
+    pos_label=None,                 # Positive class label for binary classification
+    extra_tags=None                 # Additional tags for runs
+)
+```
+
+### GridSearchCV and Pipelines
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import load_iris
+
+# Enable autologging
+mlflow.sklearn.autolog(max_tuning_runs=5)
+
+X, y = load_iris(return_X_y=True)
+
+# GridSearchCV - creates parent run with child runs for each parameter combination
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    params = {
+        "n_estimators": [50, 100, 200],
+        "max_depth": [5, 10, None]
+    }
+    grid_search = GridSearchCV(model, params, cv=3)
+    grid_search.fit(X, y)
+    
+    print(f"Best params: {grid_search.best_params_}")
+    print(f"Best score: {grid_search.best_score_}")
+
+# Pipeline - logs all pipeline steps and parameters
+with mlflow.start_run():
+    pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('classifier', RandomForestClassifier(n_estimators=100))
+    ])
+    pipeline.fit(X, y)
+```
+
+### Post-training Metrics
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, roc_auc_score
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+
+# Enable autologging with post-training metrics
+mlflow.sklearn.autolog(log_post_training_metrics=True)
+
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    
+    # These metrics are automatically logged
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    
+    # This score is also automatically logged
+    test_score = model.score(X_test, y_test)
+```
+
+## PyTorch Autologging
+
+### PyTorch Lightning
+
+```python
+import mlflow
+import pytorch_lightning as pl
+from torch import nn
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+# Enable autologging
+mlflow.pytorch.autolog()
+
+class LitModel(pl.LightningModule):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+        self.save_hyperparameters()
+        
+        self.layer_1 = nn.Linear(input_size, hidden_size)
+        self.layer_2 = nn.Linear(hidden_size, output_size)
+        
+    def forward(self, x):
+        x = torch.relu(self.layer_1(x))
+        x = self.layer_2(x)
+        return x
+    
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = nn.functional.mse_loss(y_hat, y)
+        self.log('train_loss', loss)
+        return loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=0.001)
+
+# Create data
+X = torch.randn(1000, 10)
+y = torch.randn(1000, 1)
+dataset = TensorDataset(X, y)
+train_loader = DataLoader(dataset, batch_size=32)
+
+# Train model - automatically logs parameters, metrics, and model
+model = LitModel(input_size=10, hidden_size=64, output_size=1)
+trainer = pl.Trainer(max_epochs=10)
+trainer.fit(model, train_loader)
+```
+
+### Native PyTorch
+
+```python
+import mlflow
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
+# Enable autologging
+mlflow.pytorch.autolog(log_models=True)
+
+# Define model
+class SimpleNet(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(SimpleNet, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
+        
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+# Prepare data
+X = torch.randn(1000, 10)
+y = torch.randn(1000, 1)
+dataset = TensorDataset(X, y)
+train_loader = DataLoader(dataset, batch_size=32)
+
+with mlflow.start_run():
+    model = SimpleNet(input_size=10, hidden_size=64, output_size=1)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    
+    # Training loop
+    for epoch in range(10):
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+            output = model(batch_X)
+            loss = criterion(output, batch_y)
+            loss.backward()
+            optimizer.step()
+        
+        # Log metrics manually or they're tracked automatically
+        mlflow.log_metric("loss", loss.item(), step=epoch)
+```
+
+## TensorFlow/Keras Autologging
+
+### Keras Model
+
+```python
+import mlflow
+import tensorflow as tf
+from tensorflow import keras
+import numpy as np
+
+# Enable autologging
+mlflow.tensorflow.autolog()
+
+# Prepare data
+(X_train, y_train), (X_test, y_test) = keras.datasets.mnist.load_data()
+X_train = X_train.reshape(-1, 784).astype('float32') / 255
+X_test = X_test.reshape(-1, 784).astype('float32') / 255
+
+# Build model
+model = keras.Sequential([
+    keras.layers.Dense(128, activation='relu', input_shape=(784,)),
+    keras.layers.Dropout(0.2),
+    keras.layers.Dense(64, activation='relu'),
+    keras.layers.Dense(10, activation='softmax')
+])
+
+model.compile(
+    optimizer='adam',
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# Train - automatically logs parameters, metrics, and model
+with mlflow.start_run():
+    history = model.fit(
+        X_train, y_train,
+        epochs=10,
+        batch_size=32,
+        validation_split=0.2,
+        verbose=1
+    )
+```
+
+### With Callbacks
+
+```python
+import mlflow
+import tensorflow as tf
+from tensorflow import keras
+
+# Enable autologging
+mlflow.tensorflow.autolog()
+
+# Build model
+model = keras.Sequential([
+    keras.layers.Dense(64, activation='relu', input_shape=(10,)),
+    keras.layers.Dense(1)
+])
+
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+# Prepare data
+X_train = np.random.randn(1000, 10)
+y_train = np.random.randn(1000, 1)
+
+with mlflow.start_run():
+    # Use MLflow callback for detailed logging
+    callbacks = [
+        keras.callbacks.EarlyStopping(monitor='val_loss', patience=3),
+        keras.callbacks.ModelCheckpoint('best_model.h5', save_best_only=True)
+    ]
+    
+    history = model.fit(
+        X_train, y_train,
+        epochs=50,
+        batch_size=32,
+        validation_split=0.2,
+        callbacks=callbacks
+    )
+```
+
+## Disabling Autologging
+
+### Global Disable
+
+```python
+import mlflow
+
+# Disable all autologging
+mlflow.autolog(disable=True)
+
+# Or disable specific framework
+mlflow.sklearn.autolog(disable=True)
+```
+
+### Context Manager
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+
+mlflow.sklearn.autolog()
+
+# Autologging active
+with mlflow.start_run():
+    model1 = RandomForestClassifier()
+    model1.fit(X_train, y_train)  # Logged
+
+# Temporarily disable
+with mlflow.autolog(disable=True):
+    with mlflow.start_run():
+        model2 = RandomForestClassifier()
+        model2.fit(X_train, y_train)  # Not logged
+
+# Autologging active again
+with mlflow.start_run():
+    model3 = RandomForestClassifier()
+    model3.fit(X_train, y_train)  # Logged
+```
+
+## Universal Autologging
+
+```python
+import mlflow
+
+# Enable autologging for all supported frameworks
+mlflow.autolog(
+    log_input_examples=True,
+    log_model_signatures=True,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False
+)
+
+# Now works with any supported framework
+from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
+import lightgbm as lgb
+
+with mlflow.start_run(run_name="sklearn_model"):
+    sklearn_model = RandomForestClassifier()
+    sklearn_model.fit(X_train, y_train)
+
+with mlflow.start_run(run_name="xgboost_model"):
+    xgb_model = xgb.XGBClassifier()
+    xgb_model.fit(X_train, y_train)
+
+with mlflow.start_run(run_name="lightgbm_model"):
+    lgb_model = lgb.LGBMClassifier()
+    lgb_model.fit(X_train, y_train)
+```
+
+## Complete Example: Scikit-learn with Autologging
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.datasets import load_iris
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+# Configure autologging
+mlflow.sklearn.autolog(
+    log_input_examples=True,
+    log_model_signatures=True,
+    log_models=True,
+    log_post_training_metrics=True,
+    max_tuning_runs=5,
+    registered_model_name="IrisClassifierAuto"
+)
+
+# Load data
+X, y = load_iris(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Set experiment
+mlflow.set_experiment("iris-autologging-demo")
+
+# Train simple model
+print("Training Logistic Regression...")
+with mlflow.start_run(run_name="logistic_regression"):
+    model = LogisticRegression(max_iter=200)
+    model.fit(X_train, y_train)
+    
+    # Post-training metrics are automatically logged
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Test Accuracy: {accuracy:.3f}")
+
+# Train with GridSearchCV - creates parent and child runs
+print("\nTraining Random Forest with GridSearchCV...")
+with mlflow.start_run(run_name="rf_gridsearch"):
+    rf = RandomForestClassifier(random_state=42)
+    params = {
+        "n_estimators": [50, 100],
+        "max_depth": [5, 10],
+        "min_samples_split": [2, 5]
+    }
+    
+    grid_search = GridSearchCV(rf, params, cv=3, scoring='accuracy')
+    grid_search.fit(X_train, y_train)
+    
+    # Best model metrics
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test)
+    
+    print(f"Best Parameters: {grid_search.best_params_}")
+    print(f"Best CV Score: {grid_search.best_score_:.3f}")
+    print(f"Test Accuracy: {accuracy_score(y_test, y_pred):.3f}")
+
+# Retrieve last logged model
+last_model = mlflow.last_logged_model()
+print(f"\nLast logged model:")
+print(f"  Model ID: {last_model.model_id}")
+print(f"  Params: {last_model.params}")
+print(f"  Metrics: {last_model.metrics}")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Enable Early" icon="rocket">
+    Call autolog() before importing ML frameworks for complete coverage
+  </Card>
+  
+  <Card title="Configure Per Framework" icon="gear">
+    Use framework-specific autolog for fine-grained control
+  </Card>
+  
+  <Card title="Review Logged Data" icon="magnifying-glass">
+    Check what gets logged to avoid redundant manual logging
+  </Card>
+  
+  <Card title="Combine with Manual Logging" icon="hand">
+    Add custom metrics alongside autologged ones when needed
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tracking" icon="chart-line" href="/ml/tracking">
+    Learn about manual experiment tracking
+  </Card>
+  
+  <Card title="Metrics" icon="chart-bar" href="/ml/metrics">
+    Explore advanced metrics logging
+  </Card>
+  
+  <Card title="Model Registry" icon="book" href="/ml/model-registry">
+    Manage autologged models in the registry
+  </Card>
+</CardGroup>

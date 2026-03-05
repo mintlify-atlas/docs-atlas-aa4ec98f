@@ -1,0 +1,795 @@
+---
+title: GenAI Evaluation
+description: Comprehensive guide to evaluating LLM applications with MLflow scorers and judges
+---
+
+# GenAI Evaluation
+
+MLflow provides a powerful evaluation framework for assessing the quality, safety, and performance of generative AI applications. Use built-in scorers or create custom evaluation logic to measure your LLM's effectiveness.
+
+## Why Evaluate?
+
+Evaluation helps you:
+
+- **Measure quality**: Assess correctness, fluency, and relevance of outputs
+- **Ensure safety**: Detect harmful, biased, or inappropriate content
+- **Compare models**: A/B test different prompts, models, or configurations
+- **Monitor production**: Track quality metrics over time
+- **Optimize prompts**: Identify and fix issues in prompt engineering
+
+## Quick Start
+
+### Basic Evaluation
+
+```python
+import mlflow
+import pandas as pd
+from mlflow.genai.scorers import Correctness, Safety
+
+# Prepare evaluation data
+eval_data = pd.DataFrame([
+    {
+        "inputs": {"question": "What is MLflow?"},
+        "outputs": "MLflow is an open-source platform for managing ML lifecycle",
+        "expectations": "MLflow is an open-source platform for ML"
+    },
+    {
+        "inputs": {"question": "What is Spark?"},
+        "outputs": "Apache Spark is a unified analytics engine",
+        "expectations": "Spark is a distributed computing system"
+    }
+])
+
+# Run evaluation
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[
+        Correctness(model="openai:/gpt-4o"),
+        Safety(model="openai:/gpt-4o")
+    ]
+)
+
+# View results
+print("Metrics:", result.metrics)
+print("\nPer-row assessments:")
+print(result.assessment_df)
+```
+
+## Evaluation Approaches
+
+MLflow supports three main evaluation approaches:
+
+### 1. Trace-based Evaluation
+
+Evaluate from captured traces - ideal for production monitoring:
+
+```python
+import mlflow
+from mlflow.genai.scorers import Safety, Correctness
+
+# Search for traces to evaluate
+traces = mlflow.search_traces(
+    filter_string="timestamp > '2024-01-01'",
+    model_id="m-074689226d3b40bfbbdf4c3ff35832cd",
+    max_results=100
+)
+
+# Evaluate the traces
+result = mlflow.genai.evaluate(
+    data=traces,
+    scorers=[Safety(), Correctness()]
+)
+```
+
+### 2. Static Dataset Evaluation
+
+Evaluate pre-computed outputs in a dataset:
+
+```python
+import pandas as pd
+import mlflow
+from mlflow.genai.scorers import Fluency, RetrievalGroundedness
+
+# DataFrame with inputs, outputs, and ground truth
+eval_df = pd.DataFrame([
+    {
+        "inputs": {"question": "What is MLflow?"},
+        "outputs": "MLflow is a platform for ML lifecycle",
+        "expectations": "MLflow is an open source ML platform",
+        "context": ["MLflow documentation: MLflow is an open source platform..."]
+    }
+])
+
+result = mlflow.genai.evaluate(
+    data=eval_df,
+    scorers=[
+        Fluency(model="openai:/gpt-4o"),
+        RetrievalGroundedness(model="openai:/gpt-4o")
+    ]
+)
+```
+
+### 3. Online Evaluation with predict_fn
+
+Generate outputs on-the-fly during evaluation:
+
+```python
+import mlflow
+import openai
+import pandas as pd
+from mlflow.genai.scorers import Correctness, Safety
+
+# Define prediction function
+def predict_fn(question: str) -> str:
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": question}]
+    )
+    return response.choices[0].message.content
+
+# Input dataset (no outputs yet)
+inputs_df = pd.DataFrame([
+    {"inputs": {"question": "What is MLflow?"}},
+    {"inputs": {"question": "What is Spark?"}}
+])
+
+# Evaluate - will call predict_fn for each row
+result = mlflow.genai.evaluate(
+    data=inputs_df,
+    predict_fn=predict_fn,
+    scorers=[Correctness(), Safety()]
+)
+```
+
+## Built-in Scorers
+
+MLflow provides production-ready scorers for common evaluation tasks:
+
+### Quality Scorers
+
+#### Correctness
+
+Evaluates if the output is factually correct compared to expectations:
+
+```python
+from mlflow.genai.scorers import Correctness
+
+correctness = Correctness(model="openai:/gpt-4o")
+
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[correctness]
+)
+```
+
+#### Fluency
+
+Assesses the language quality and coherence:
+
+```python
+from mlflow.genai.scorers import Fluency
+
+fluency = Fluency(model="openai:/gpt-4o")
+```
+
+#### Completeness
+
+Checks if the response fully addresses the query:
+
+```python
+from mlflow.genai.scorers import Completeness
+
+completeness = Completeness(model="openai:/gpt-4o")
+```
+
+### Safety Scorers
+
+#### Safety
+
+Detects harmful, toxic, or inappropriate content:
+
+```python
+from mlflow.genai.scorers import Safety
+
+safety = Safety(model="openai:/gpt-4o")
+
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[safety]
+)
+```
+
+### RAG Scorers
+
+#### RetrievalGroundedness
+
+Verifies outputs are grounded in provided context:
+
+```python
+from mlflow.genai.scorers import RetrievalGroundedness
+
+groundedness = RetrievalGroundedness(model="openai:/gpt-4o")
+
+# Requires 'context' in data
+eval_data = pd.DataFrame([{
+    "inputs": {"question": "What is MLflow?"},
+    "outputs": "MLflow is an ML platform",
+    "context": ["MLflow is an open source platform for ML lifecycle"]
+}])
+
+result = mlflow.genai.evaluate(data=eval_data, scorers=[groundedness])
+```
+
+#### RetrievalRelevance
+
+Evaluates if retrieved context is relevant to the query:
+
+```python
+from mlflow.genai.scorers import RetrievalRelevance
+
+relevance = RetrievalRelevance(model="openai:/gpt-4o")
+```
+
+#### RetrievalSufficiency
+
+Checks if retrieved context is sufficient to answer:
+
+```python
+from mlflow.genai.scorers import RetrievalSufficiency
+
+sufficiency = RetrievalSufficiency(model="openai:/gpt-4o")
+```
+
+### Agent Scorers
+
+#### ToolCallCorrectness
+
+Verifies agent uses tools correctly:
+
+```python
+from mlflow.genai.scorers import ToolCallCorrectness
+
+tool_correctness = ToolCallCorrectness(model="openai:/gpt-4o")
+
+# Requires trace with tool calls
+traces = mlflow.search_traces(filter_string="...")
+result = mlflow.genai.evaluate(data=traces, scorers=[tool_correctness])
+```
+
+#### ToolCallEfficiency
+
+Evaluates if agent uses minimal necessary tools:
+
+```python
+from mlflow.genai.scorers import ToolCallEfficiency
+
+efficiency = ToolCallEfficiency(model="openai:/gpt-4o")
+```
+
+### Guidelines Scorers
+
+#### Guidelines
+
+Evaluates adherence to custom guidelines:
+
+```python
+from mlflow.genai.scorers import Guidelines
+
+guidelines = Guidelines(
+    guidelines="The response must be professional and use formal language.",
+    model="openai:/gpt-4o"
+)
+
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[guidelines]
+)
+```
+
+### Conversational Scorers
+
+For multi-turn conversations:
+
+```python
+from mlflow.genai.scorers import (
+    ConversationalSafety,
+    ConversationalRoleAdherence,
+    UserFrustration,
+    KnowledgeRetention
+)
+
+# Evaluate conversation traces
+conversation_scorers = [
+    ConversationalSafety(model="openai:/gpt-4o"),
+    ConversationalRoleAdherence(model="openai:/gpt-4o"),
+    UserFrustration(model="openai:/gpt-4o"),
+    KnowledgeRetention(model="openai:/gpt-4o")
+]
+```
+
+## Custom Scorers
+
+### Function-based Scorer
+
+Create simple scorers with the `@scorer` decorator:
+
+```python
+from mlflow.genai.scorers import scorer
+
+@scorer
+def word_count_scorer(inputs, outputs) -> dict:
+    """Count words in the output"""
+    word_count = len(outputs.split())
+    return {
+        "word_count": word_count,
+        "within_limit": word_count <= 100
+    }
+
+# Use in evaluation
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[word_count_scorer]
+)
+```
+
+### Scorer with Trace Access
+
+```python
+from mlflow.genai.scorers import scorer
+from mlflow.entities import Trace
+
+@scorer
+def latency_scorer(trace: Trace) -> dict:
+    """Evaluate response latency"""
+    duration_ms = trace.info.execution_duration
+    return {
+        "latency_ms": duration_ms,
+        "is_fast": duration_ms < 1000,
+        "latency_grade": "A" if duration_ms < 500 else "B" if duration_ms < 1000 else "C"
+    }
+```
+
+### Scorer with Expectations
+
+```python
+@scorer
+def contains_keywords(inputs, outputs, expectations) -> dict:
+    """Check if output contains expected keywords"""
+    expected_keywords = expectations.get("keywords", [])
+    output_lower = outputs.lower()
+    
+    found_keywords = [kw for kw in expected_keywords if kw.lower() in output_lower]
+    
+    return {
+        "keywords_found": len(found_keywords),
+        "keywords_total": len(expected_keywords),
+        "all_present": len(found_keywords) == len(expected_keywords)
+    }
+```
+
+### Class-based Scorer
+
+For more complex evaluation logic:
+
+```python
+from mlflow.genai.scorers.base import Scorer
+from typing import Any
+
+class CustomQualityScorer(Scorer):
+    def __init__(self, threshold: float = 0.7):
+        super().__init__(name="custom_quality")
+        self.threshold = threshold
+    
+    def __call__(self, inputs: Any, outputs: Any, **kwargs) -> dict:
+        # Your custom scoring logic
+        quality_score = self._compute_quality(outputs)
+        
+        return {
+            "quality_score": quality_score,
+            "passes_threshold": quality_score >= self.threshold
+        }
+    
+    def _compute_quality(self, text: str) -> float:
+        # Custom quality computation
+        return len(text) / 1000.0  # Example
+
+# Use in evaluation
+custom_scorer = CustomQualityScorer(threshold=0.8)
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[custom_scorer]
+)
+```
+
+## Judges
+
+Judges are LLM-powered evaluators that use natural language criteria:
+
+### Creating a Judge
+
+```python
+from mlflow.genai import make_judge
+
+# Create custom judge with instructions
+helpfulness_judge = make_judge(
+    name="helpfulness",
+    instructions="""
+    Evaluate how helpful the response is to the user.
+    Consider:
+    - Does it directly answer the question?
+    - Is it easy to understand?
+    - Does it provide actionable information?
+    
+    Rate from 1-5 where:
+    1 = Not helpful at all
+    5 = Extremely helpful
+    """,
+    model="openai:/gpt-4o"
+)
+
+# Use as a scorer
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[helpfulness_judge]
+)
+```
+
+### Built-in Judge Functions
+
+```python
+from mlflow.genai.judges import (
+    is_grounded,
+    is_safe,
+    is_correct,
+    is_context_relevant,
+    is_context_sufficient,
+    is_tool_call_correct,
+    is_tool_call_efficient,
+    meets_guidelines
+)
+
+# Use built-in judges
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[
+        is_grounded(model="openai:/gpt-4o"),
+        is_safe(model="openai:/gpt-4o"),
+        is_correct(model="openai:/gpt-4o")
+    ]
+)
+```
+
+### Custom Prompt Judge
+
+```python
+from mlflow.genai.judges import custom_prompt_judge
+
+conciseness_judge = custom_prompt_judge(
+    name="conciseness",
+    prompt="""
+    Evaluate if the response is concise and to the point.
+    
+    Response: {outputs}
+    
+    Is this response concise? Respond with YES or NO.
+    """,
+    model="openai:/gpt-4o"
+)
+```
+
+## Evaluation Results
+
+### Understanding Results
+
+```python
+result = mlflow.genai.evaluate(
+    data=eval_data,
+    scorers=[Correctness(), Safety()]
+)
+
+# Aggregated metrics
+print("Metrics:", result.metrics)
+# Output: {'correctness/pass_rate': 0.85, 'safety/pass_rate': 1.0, ...}
+
+# Per-row assessments
+print(result.assessment_df)
+# DataFrame with columns: inputs, outputs, correctness, safety, ...
+
+# Detailed assessment data
+for assessment in result.assessments:
+    print(f"Row {assessment.row_index}:")
+    print(f"  Score: {assessment.value}")
+    print(f"  Rationale: {assessment.rationale}")
+```
+
+### Accessing Metrics
+
+```python
+# Get specific metric
+correctness_rate = result.metrics.get("correctness/pass_rate")
+print(f"Correctness pass rate: {correctness_rate:.2%}")
+
+# Get all metrics for a scorer
+correctness_metrics = {
+    k: v for k, v in result.metrics.items() 
+    if k.startswith("correctness/")
+}
+```
+
+### Visualization
+
+```python
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Plot score distribution
+scores = result.assessment_df["correctness/rating"]
+plt.hist(scores, bins=5)
+plt.xlabel("Correctness Rating")
+plt.ylabel("Frequency")
+plt.title("Distribution of Correctness Scores")
+plt.show()
+
+# Compare scorers
+scorer_means = result.assessment_df[["correctness/rating", "safety/rating"]].mean()
+scorer_means.plot(kind="bar")
+plt.ylabel("Average Rating")
+plt.title("Scorer Comparison")
+plt.show()
+```
+
+## Advanced Evaluation
+
+### Multi-turn Conversation Evaluation
+
+```python
+from mlflow.genai.simulators import ConversationSimulator
+from mlflow.genai.scorers import ConversationalSafety
+import openai
+
+# Define agent function
+def my_agent(input: list[dict], **context) -> dict:
+    """Agent that handles conversations"""
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=input
+    )
+    return response
+
+# Create simulator
+simulator = ConversationSimulator(
+    test_cases=[
+        {
+            "goal": "Learn about MLflow tracking",
+            "persona": "A data scientist new to MLflow",
+            "context": {"user_type": "beginner"}
+        },
+        {
+            "goal": "Debug a deployment issue",
+            "persona": "An experienced ML engineer",
+            "context": {"user_type": "advanced"}
+        }
+    ],
+    max_turns=5
+)
+
+# Evaluate conversations
+result = mlflow.genai.evaluate(
+    data=simulator,
+    predict_fn=my_agent,
+    scorers=[
+        ConversationalSafety(model="openai:/gpt-4o"),
+        UserFrustration(model="openai:/gpt-4o")
+    ]
+)
+```
+
+### Session-level Evaluation
+
+```python
+import mlflow
+from mlflow.genai.scorers import ConversationCompleteness
+
+# Search for conversation sessions
+sessions = mlflow.search_sessions(
+    locations=["experiment_id"],
+    max_results=10
+)
+
+# Flatten to traces for evaluation
+all_traces = [trace for session in sessions for trace in session]
+
+# Evaluate at session level
+result = mlflow.genai.evaluate(
+    data=all_traces,
+    scorers=[
+        ConversationCompleteness(model="openai:/gpt-4o")
+    ]
+)
+```
+
+### Custom Aggregation
+
+```python
+from mlflow.genai.scorers import scorer
+
+@scorer(aggregations=["mean", "median", "p90"])
+def response_length(outputs) -> float:
+    """Measure response length"""
+    return len(outputs)
+
+# Custom aggregation function
+def custom_agg(values: list[float]) -> float:
+    """Custom aggregation logic"""
+    return sum(values) / len(values) if values else 0
+
+@scorer(aggregations=[custom_agg])
+def custom_metric(outputs) -> float:
+    return compute_score(outputs)
+```
+
+### Batch Evaluation
+
+```python
+import mlflow
+from mlflow.genai.scorers import Correctness, Safety
+import pandas as pd
+
+# Large dataset
+large_dataset = pd.read_parquet("eval_data.parquet")
+
+# Evaluate in batches
+result = mlflow.genai.evaluate(
+    data=large_dataset,
+    scorers=[
+        Correctness(model="openai:/gpt-4o"),
+        Safety(model="openai:/gpt-4o")
+    ]
+    # MLflow handles batching automatically
+)
+```
+
+### Model Comparison
+
+```python
+import mlflow
+import pandas as pd
+from mlflow.genai.scorers import Correctness
+
+def evaluate_model(model_name: str, test_data: pd.DataFrame):
+    """Evaluate a specific model"""
+    def predict_fn(question: str) -> str:
+        client = openai.OpenAI()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": question}]
+        )
+        return response.choices[0].message.content
+    
+    with mlflow.start_run(run_name=f"eval_{model_name}"):
+        result = mlflow.genai.evaluate(
+            data=test_data,
+            predict_fn=predict_fn,
+            scorers=[Correctness(model="openai:/gpt-4o")]
+        )
+        
+        # Log results
+        mlflow.log_metrics(result.metrics)
+        mlflow.log_param("model", model_name)
+        
+    return result
+
+# Compare models
+test_data = pd.DataFrame([...])
+
+results = {
+    "gpt-4o-mini": evaluate_model("gpt-4o-mini", test_data),
+    "gpt-4o": evaluate_model("gpt-4o", test_data),
+}
+
+# Compare metrics
+for model, result in results.items():
+    print(f"{model}: {result.metrics['correctness/pass_rate']:.2%}")
+```
+
+## Integration with Experiments
+
+```python
+import mlflow
+from mlflow.genai.scorers import Correctness, Safety
+
+mlflow.set_experiment("llm-evaluation")
+
+with mlflow.start_run(run_name="baseline-eval"):
+    result = mlflow.genai.evaluate(
+        data=eval_data,
+        scorers=[Correctness(), Safety()]
+    )
+    
+    # Metrics are automatically logged
+    # Access them in MLflow UI or programmatically
+    run = mlflow.get_run(mlflow.active_run().info.run_id)
+    print(run.data.metrics)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Multiple Scorers">
+    Evaluate from different angles for comprehensive assessment:
+    ```python
+    scorers = [
+        Correctness(),
+        Safety(),
+        Fluency(),
+        RetrievalGroundedness()
+    ]
+    ```
+  </Accordion>
+  
+  <Accordion title="Provide Clear Expectations">
+    Include ground truth or expected outputs when available:
+    ```python
+    eval_data = pd.DataFrame([{
+        "inputs": {"question": "..."},
+        "outputs": "...",
+        "expectations": "Clear expected answer"
+    }])
+    ```
+  </Accordion>
+  
+  <Accordion title="Version Your Evaluation Data">
+    Track evaluation datasets as MLflow artifacts:
+    ```python
+    eval_dataset = mlflow.genai.create_dataset(
+        name="eval_v1",
+        data=eval_df
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor Evaluation Costs">
+    LLM-based scorers incur API costs. Consider:
+    - Using smaller models for initial evaluation
+    - Sampling large datasets
+    - Caching evaluation results
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Missing Required Fields
+
+```python
+# Error: Scorer requires 'context' field
+# Solution: Ensure data has required columns
+eval_data = pd.DataFrame([{
+    "inputs": {...},
+    "outputs": "...",
+    "context": ["doc1", "doc2"]  # Add missing field
+}])
+```
+
+### Judge Model Errors
+
+```python
+# Set environment variables for API keys
+import os
+os.environ["OPENAI_API_KEY"] = "your-key"
+
+# Or specify model with credentials
+scorer = Correctness(model="openai:/gpt-4o")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Prompt Optimization" icon="wand-magic-sparkles" href="/genai/prompt-management">
+    Use evaluation results to optimize prompts
+  </Card>
+  <Card title="Agent Evaluation" icon="robot" href="/genai/agents">
+    Learn about agent-specific evaluation
+  </Card>
+</CardGroup>

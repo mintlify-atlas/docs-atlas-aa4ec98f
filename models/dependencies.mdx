@@ -1,0 +1,629 @@
+---
+title: Model Dependencies
+description: Manage Python dependencies and environments for MLflow models
+---
+
+MLflow automatically captures and manages your model's dependencies to ensure reproducible deployments. This guide covers how dependencies are tracked, managed, and customized.
+
+## Why Dependency Management Matters
+
+MLflow models need to run in different environments:
+
+<CardGroup cols={2}>
+  <Card title="Development" icon="laptop-code">
+    Local machine with specific package versions
+  </Card>
+  <Card title="Production" icon="server">
+    Serving infrastructure with different configurations
+  </Card>
+  <Card title="Collaboration" icon="users">
+    Team members with varying setups
+  </Card>
+  <Card title="Time Travel" icon="clock">
+    Reproducing results months or years later
+  </Card>
+</CardGroup>
+
+MLflow solves this by capturing exact dependency information when you log a model.
+
+## Automatic Dependency Capture
+
+When you log a model, MLflow automatically creates three dependency files:
+
+### 1. requirements.txt
+
+Pip dependencies with exact versions:
+
+```txt
+mlflow==2.15.0
+scikit-learn==1.3.0
+cloudpickle==2.2.1
+numpy==1.24.3
+pandas==2.0.3
+```
+
+### 2. conda.yaml
+
+Complete conda environment specification:
+
+```yaml
+channels:
+- conda-forge
+dependencies:
+- python=3.10.12
+- pip<=24.0
+- pip:
+  - mlflow==2.15.0
+  - scikit-learn==1.3.0
+  - cloudpickle==2.2.1
+  - numpy==1.24.3
+  - pandas==2.0.3
+name: mlflow-env
+```
+
+### 3. python_env.yaml
+
+Virtualenv environment for faster restoration:
+
+```yaml
+python: 3.10.12
+build_dependencies:
+- pip==24.0
+- setuptools==68.0.0
+- wheel==0.41.0
+dependencies:
+- -r requirements.txt
+```
+
+## Default Dependencies by Flavor
+
+Each model flavor includes its own default dependencies:
+
+<Tabs>
+  <Tab title="Scikit-learn">
+    From `mlflow/sklearn/__init__.py`:
+    
+    ```python
+    def get_default_pip_requirements(
+        include_cloudpickle=False,
+        include_skops=False
+    ):
+        pip_deps = [_get_pinned_requirement("scikit-learn", module="sklearn")]
+        if include_cloudpickle:
+            pip_deps += [_get_pinned_requirement("cloudpickle")]
+        if include_skops:
+            pip_deps += [_get_pinned_requirement("skops")]
+        return pip_deps
+    ```
+    
+    Default: `scikit-learn==<current_version>`
+  </Tab>
+  
+  <Tab title="PyTorch">
+    From `mlflow/pytorch/__init__.py`:
+    
+    ```python
+    def get_default_pip_requirements():
+        return list(map(
+            _get_pinned_requirement,
+            [
+                "torch",
+                "cloudpickle",  # Required for pickle module
+            ],
+        ))
+    ```
+    
+    Default: `torch==<current_version>`, `cloudpickle==<current_version>`
+  </Tab>
+  
+  <Tab title="PyFunc">
+    From `mlflow/pyfunc/model.py`:
+    
+    ```python
+    def get_default_pip_requirements():
+        return [_get_pinned_requirement("cloudpickle")]
+    ```
+    
+    Default: `cloudpickle==<current_version>`
+  </Tab>
+  
+  <Tab title="Transformers">
+    Default:
+    ```
+    transformers==<current_version>
+    torch==<current_version>
+    tokenizers==<current_version>
+    ```
+  </Tab>
+</Tabs>
+
+## Specifying Custom Dependencies
+
+### Using pip_requirements
+
+Explicitly specify all dependencies:
+
+```python
+import mlflow.sklearn
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        pip_requirements=[
+            "scikit-learn==1.3.0",
+            "pandas==2.0.3",
+            "numpy==1.24.3",
+            "joblib==1.3.2"
+        ]
+    )
+```
+
+<Warning>
+When you specify `pip_requirements`, it **replaces** the default requirements entirely. You must include all necessary packages, including framework dependencies.
+</Warning>
+
+### Using extra_pip_requirements
+
+Add dependencies on top of defaults:
+
+```python
+import mlflow.sklearn
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        extra_pip_requirements=[
+            "requests==2.31.0",
+            "beautifulsoup4==4.12.2",
+            "pillow==10.0.0"
+        ]
+    )
+```
+
+This approach:
+- ✅ Keeps default dependencies (mlflow, scikit-learn, cloudpickle)
+- ✅ Adds your custom packages
+- ✅ Recommended for most use cases
+
+### Using conda_env
+
+Specify a complete conda environment:
+
+```python
+import mlflow.pytorch
+
+conda_env = {
+    'channels': ['conda-forge', 'pytorch'],
+    'dependencies': [
+        'python=3.10',
+        'pytorch=2.0.0',
+        'torchvision=0.15.0',
+        {'pip': [
+            'mlflow==2.15.0',
+            'transformers==4.30.0'
+        ]}
+    ],
+    'name': 'my-model-env'
+}
+
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        pytorch_model=model,
+        artifact_path="model",
+        conda_env=conda_env
+    )
+```
+
+### Using conda_env from file
+
+```python
+import mlflow.sklearn
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        conda_env="path/to/conda.yaml"
+    )
+```
+
+## Automatic Inference from Input Example
+
+MLflow can infer some dependencies from input examples:
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+import numpy as np
+
+class MyModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        return model_input * 2
+
+# Input example uses pandas - MLflow will include it
+input_example = pd.DataFrame({"x": [1, 2, 3]})
+
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=MyModel(),
+        input_example=input_example  # pandas will be auto-detected
+    )
+    # requirements.txt will include pandas
+```
+
+## Environment Managers
+
+MLflow supports multiple environment managers:
+
+### Virtualenv (Default)
+
+Fast environment creation using virtualenv:
+
+```bash
+mlflow models serve -m runs:/run_id/model --env-manager virtualenv
+```
+
+Benefits:
+- Fast environment creation
+- Uses Python's built-in venv or virtualenv
+- Leverages `python_env.yaml` for efficiency
+
+### Conda
+
+Complete environment isolation:
+
+```bash
+mlflow models serve -m runs:/run_id/model --env-manager conda
+```
+
+Benefits:
+- Full reproducibility including Python version
+- Handles non-Python dependencies
+- Uses `conda.yaml`
+
+### Local
+
+Use current environment without creating a new one:
+
+```bash
+mlflow models serve -m runs:/run_id/model --env-manager local
+```
+
+<Warning>
+`local` env manager assumes all dependencies are already installed. Use only for development or when you've manually set up the environment.
+</Warning>
+
+## Updating Model Dependencies
+
+You can update dependencies of a logged model:
+
+```python
+from mlflow.models import update_model_requirements
+
+model_uri = "runs:/run_id/model"
+
+# Add new requirements
+update_model_requirements(
+    model_uri=model_uri,
+    operation="add",
+    requirement_list=["requests==2.31.0", "pillow==10.0.0"]
+)
+
+# Remove requirements
+update_model_requirements(
+    model_uri=model_uri,
+    operation="remove",
+    requirement_list=["pandas"]
+)
+```
+
+## Managing Dependencies for Custom PyFunc Models
+
+Custom PyFunc models require careful dependency management:
+
+```python
+import mlflow.pyfunc
+
+class CustomModel(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        # Import heavy dependencies only when loading
+        import torch
+        import transformers
+        
+        self.model = transformers.AutoModel.from_pretrained(
+            context.artifacts["model_path"]
+        )
+    
+    def predict(self, context, model_input, params=None):
+        import numpy as np
+        # Use loaded model
+        return self.model(model_input)
+
+# Log with complete dependency list
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=CustomModel(),
+        artifacts={"model_path": "/path/to/pretrained"},
+        pip_requirements=[
+            "mlflow==2.15.0",
+            "cloudpickle==2.2.1",
+            "torch==2.0.0",
+            "transformers==4.30.0",
+            "numpy==1.24.3"
+        ]
+    )
+```
+
+<Note>
+Import statements inside methods (`load_context`, `predict`) won't be automatically detected. Always explicitly specify these dependencies in `pip_requirements` or `extra_pip_requirements`.
+</Note>
+
+## Code Dependencies
+
+Include custom Python modules with your model:
+
+```python
+import mlflow.sklearn
+
+# Include custom preprocessing code
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        code_paths=[
+            "preprocessing.py",
+            "feature_engineering.py",
+            "utils/helpers.py"
+        ]
+    )
+```
+
+The specified files are:
+1. Copied to the model directory under `code/`
+2. Added to `sys.path` when the model loads
+3. Available for import in your model code
+
+### Example with Code Paths
+
+```python
+# preprocessing.py
+def preprocess_features(df):
+    # Custom preprocessing logic
+    return df.fillna(0)
+
+# main.py
+import mlflow.pyfunc
+from preprocessing import preprocess_features
+
+class CustomModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        # Use function from code_paths
+        processed = preprocess_features(model_input)
+        return self.model.predict(processed)
+
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=CustomModel(),
+        code_paths=["preprocessing.py"],  # Include custom module
+        pip_requirements=["pandas", "scikit-learn"]
+    )
+```
+
+## Inference with Dependencies
+
+MLflow automatically manages environments during inference:
+
+### Local Serving
+
+```bash
+# MLflow creates environment automatically
+mlflow models serve -m runs:/run_id/model -p 5000
+
+# Specify environment manager
+mlflow models serve -m runs:/run_id/model -p 5000 --env-manager virtualenv
+```
+
+### Batch Prediction
+
+```bash
+# Environment created based on model's requirements
+mlflow models predict -m runs:/run_id/model -i input.json -o output.json
+```
+
+### Docker Deployment
+
+From `mlflow/models/python_api.py`:
+
+```python
+import mlflow.models
+
+# Build Docker image with all dependencies
+mlflow.models.build_docker(
+    model_uri="runs:/run_id/model",
+    name="my-model",
+    env_manager="virtualenv"  # or "conda"
+)
+```
+
+The Docker image includes:
+- Base Python image
+- All pip/conda dependencies from model
+- Model artifacts and code
+- Serving infrastructure
+
+## Debugging Dependency Issues
+
+### Check Model Dependencies
+
+```python
+import mlflow
+
+model_info = mlflow.models.get_model_info("runs:/run_id/model")
+
+# View pip requirements
+from mlflow.utils.environment import _get_requirements_from_file
+requirements = _get_requirements_from_file(
+    f"{model_info.artifact_path}/requirements.txt"
+)
+print("Requirements:", requirements)
+```
+
+### Verbose Dependency Resolution
+
+From the source code documentation:
+
+```bash
+# For virtualenv/pip
+export PIP_VERBOSE=1
+mlflow models serve -m runs:/run_id/model
+
+# For uv (fast pip alternative)
+export RUST_LOG=uv=debug
+mlflow models serve -m runs:/run_id/model
+```
+
+### Test Environment Locally
+
+```bash
+# Create environment manually to debug
+mlflow models prepare-env -m runs:/run_id/model -e /path/to/env
+
+# Activate and test
+source /path/to/env/bin/activate
+python -c "import sklearn; import pandas; print('Success!')"
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Pin all dependency versions">
+    Use exact versions for reproducibility:
+    
+    ```python
+    # Good - exact versions
+    pip_requirements=[
+        "scikit-learn==1.3.0",
+        "pandas==2.0.3",
+        "numpy==1.24.3"
+    ]
+    
+    # Bad - version ranges or no versions
+    pip_requirements=[
+        "scikit-learn>=1.0",
+        "pandas",
+        "numpy"
+    ]
+    ```
+  </Accordion>
+  
+  <Accordion title="Use extra_pip_requirements for additions">
+    Preserve defaults while adding custom packages:
+    
+    ```python
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        extra_pip_requirements=["requests==2.31.0"]  # Add to defaults
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Include all custom dependencies">
+    Don't rely on auto-detection for imports in functions:
+    
+    ```python
+    class MyModel(mlflow.pyfunc.PythonModel):
+        def predict(self, context, model_input, params=None):
+            import special_library  # Must be in pip_requirements!
+            return special_library.process(model_input)
+    
+    mlflow.pyfunc.log_model(
+        python_model=MyModel(),
+        pip_requirements=[
+            "mlflow",
+            "special_library==1.2.3"  # Explicitly listed
+        ]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Test model in clean environment">
+    Verify dependencies are complete:
+    
+    ```bash
+    # Create fresh environment
+    python -m venv test_env
+    source test_env/bin/activate
+    
+    # Load and test model
+    python -c "
+    import mlflow
+    model = mlflow.pyfunc.load_model('runs:/run_id/model')
+    print('Model loaded successfully!')
+    "
+    ```
+  </Accordion>
+  
+  <Accordion title="Document non-Python dependencies">
+    If your model needs system libraries:
+    
+    ```python
+    metadata = {
+        "system_requirements": [
+            "libgomp1 (for XGBoost)",
+            "libgfortran5 (for SciPy)"
+        ]
+    }
+    
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        metadata=metadata
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Issues
+
+<Warning>
+**Dependency conflicts**: When packages have incompatible version requirements:
+
+```python
+# May cause conflicts
+pip_requirements=[
+    "package-a==1.0",  # requires numpy<1.24
+    "package-b==2.0"   # requires numpy>=1.24
+]
+```
+
+Solution: Test compatibility before logging or use a dependency resolver like `pip-tools`.
+</Warning>
+
+<Warning>
+**Missing transitive dependencies**: Some packages don't declare all their dependencies:
+
+```python
+# Explicitly include transitive dependencies if needed
+extra_pip_requirements=[
+    "primary-package==1.0",
+    "hidden-dependency==2.0"  # Not auto-detected
+]
+```
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Overview" icon="book" href="/models/overview">
+    Learn more about MLflow Models
+  </Card>
+  <Card title="Custom Models" icon="code" href="/models/custom-models">
+    Create custom PyFunc models
+  </Card>
+</CardGroup>

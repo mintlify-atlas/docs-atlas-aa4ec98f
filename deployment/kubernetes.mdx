@@ -1,0 +1,715 @@
+---
+title: Kubernetes Deployment
+description: Deploy MLflow models to Kubernetes clusters for scalable production workloads
+---
+
+Kubernetes provides a robust platform for deploying MLflow models at scale. MLflow supports running MLflow Projects as Kubernetes Jobs and deploying models as Kubernetes services.
+
+## Overview
+
+MLflow's Kubernetes integration allows you to:
+
+<CardGroup cols={2}>
+  <Card title="Run Projects as Jobs" icon="play">
+    Execute MLflow Projects as Kubernetes batch jobs
+  </Card>
+  <Card title="Deploy Models" icon="rocket">
+    Serve models using Kubernetes Deployments and Services
+  </Card>
+  <Card title="Auto-scaling" icon="arrow-up-right-dots">
+    Scale deployments based on demand
+  </Card>
+  <Card title="Resource Management" icon="gauge">
+    Control CPU, memory, and GPU allocation
+  </Card>
+</CardGroup>
+
+## Running MLflow Projects on Kubernetes
+
+MLflow can run Projects as Kubernetes Jobs, building a Docker image and executing it in a Kubernetes cluster.
+
+### Prerequisites
+
+<Steps>
+  <Step title="Kubernetes Cluster">
+    Access to a Kubernetes cluster with `kubectl` configured
+  </Step>
+  <Step title="Docker Registry">
+    A Docker registry accessible from your cluster (Docker Hub, ECR, GCR, etc.)
+  </Step>
+  <Step title="Kubernetes Context">
+    Valid Kubernetes context or kubeconfig file
+  </Step>
+</Steps>
+
+### Kubernetes Job Template
+
+Create a job template defining resource requirements and configuration:
+
+```yaml kubernetes_job_template.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{replaced with MLflow Project name}"
+  namespace: mlflow
+spec:
+  ttlSecondsAfterFinished: 100
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+        - name: "{replaced with MLflow Project name}"
+          image: "{replaced with URI of Docker image created during Project execution}"
+          command: ["{replaced with MLflow Project entry point command}"]
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
+            requests:
+              memory: 256Mi
+              cpu: "500m"
+      restartPolicy: Never
+```
+
+### Kubernetes Configuration
+
+Create a JSON configuration file for your Kubernetes deployment:
+
+```json kubernetes_config.json
+{
+  "kube-context": "my-kubernetes-context",
+  "kube-job-template-path": "kubernetes_job_template.yaml",
+  "repository-uri": "my-docker-registry/mlflow-project"
+}
+```
+
+**Configuration options:**
+
+<ParamField path="kube-context" type="string">
+  Name of the Kubernetes context to use (from `~/.kube/config`)
+</ParamField>
+
+<ParamField path="kube-job-template-path" type="string">
+  Path to the Kubernetes Job template YAML file
+</ParamField>
+
+<ParamField path="repository-uri" type="string">
+  Docker repository URI where the project image will be pushed
+</ParamField>
+
+### Running a Project
+
+```bash
+mlflow run <project-uri> \
+  --backend kubernetes \
+  --backend-config kubernetes_config.json \
+  -P param1=value1
+```
+
+**What happens:**
+
+1. MLflow builds a Docker image for the project
+2. Image is pushed to the specified repository
+3. Kubernetes Job is created using the template
+4. Job runs with the project entrypoint command
+5. MLflow tracks the job status
+
+### Environment Variables
+
+The Kubernetes job automatically receives MLflow environment variables:
+
+```yaml
+env:
+  - name: MLFLOW_TRACKING_URI
+    value: "http://mlflow-server:5000"
+  - name: MLFLOW_EXPERIMENT_NAME
+    value: "my-experiment"
+  - name: MLFLOW_RUN_ID
+    value: "abc123def456"
+```
+
+To set a custom tracking URI, use the `KUBE_MLFLOW_TRACKING_URI` environment variable:
+
+```bash
+export KUBE_MLFLOW_TRACKING_URI=http://mlflow-tracking:5000
+mlflow run <project-uri> --backend kubernetes --backend-config kubernetes_config.json
+```
+
+## Deploying Models to Kubernetes
+
+Deploy MLflow models as Kubernetes Deployments and Services for real-time serving.
+
+### Step 1: Build Docker Image
+
+Build a Docker image containing your model:
+
+```bash
+mlflow models build-docker \
+  -m models:/my-model/production \
+  -n my-model:latest \
+  --enable-mlserver
+```
+
+### Step 2: Push to Registry
+
+Push the image to your container registry:
+
+```bash
+# Tag for registry
+docker tag my-model:latest gcr.io/my-project/my-model:latest
+
+# Push to registry
+docker push gcr.io/my-project/my-model:latest
+```
+
+### Step 3: Create Kubernetes Deployment
+
+```yaml deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-model
+  namespace: mlflow
+  labels:
+    app: mlflow-model
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mlflow-model
+  template:
+    metadata:
+      labels:
+        app: mlflow-model
+    spec:
+      containers:
+      - name: mlflow-model
+        image: gcr.io/my-project/my-model:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow-server:5000"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+```
+
+### Step 4: Create Service
+
+```yaml service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-model-service
+  namespace: mlflow
+spec:
+  selector:
+    app: mlflow-model
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: LoadBalancer
+```
+
+### Step 5: Deploy to Kubernetes
+
+```bash
+# Create namespace
+kubectl create namespace mlflow
+
+# Apply deployment and service
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+
+# Check deployment status
+kubectl get deployments -n mlflow
+kubectl get pods -n mlflow
+kubectl get services -n mlflow
+```
+
+## Auto-scaling with HPA
+
+Configure Horizontal Pod Autoscaler for automatic scaling:
+
+```yaml hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mlflow-model-hpa
+  namespace: mlflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mlflow-model
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      selectPolicy: Max
+```
+
+**Apply HPA:**
+
+```bash
+kubectl apply -f hpa.yaml
+
+# Check autoscaler status
+kubectl get hpa -n mlflow
+```
+
+## GPU Support
+
+Deploy models that require GPU acceleration:
+
+```yaml deployment-gpu.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-model-gpu
+  namespace: mlflow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mlflow-model-gpu
+  template:
+    metadata:
+      labels:
+        app: mlflow-model-gpu
+    spec:
+      containers:
+      - name: mlflow-model
+        image: gcr.io/my-project/my-model-gpu:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "8Gi"
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "4Gi"
+            cpu: "2"
+      nodeSelector:
+        accelerator: nvidia-tesla-t4
+```
+
+## Configuration with ConfigMaps and Secrets
+
+Store configuration separately from deployment specs:
+
+### ConfigMap for Model Configuration
+
+```yaml configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlflow-model-config
+  namespace: mlflow
+data:
+  MLFLOW_TRACKING_URI: "http://mlflow-server:5000"
+  MODEL_NAME: "my-model"
+  MODEL_VERSION: "production"
+  LOG_LEVEL: "INFO"
+  WORKERS: "4"
+```
+
+### Secret for Credentials
+
+```yaml secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mlflow-model-secrets
+  namespace: mlflow
+type: Opaque
+data:
+  AWS_ACCESS_KEY_ID: <base64-encoded-key>
+  AWS_SECRET_ACCESS_KEY: <base64-encoded-secret>
+```
+
+**Create secrets:**
+
+```bash
+kubectl create secret generic mlflow-model-secrets \
+  --from-literal=AWS_ACCESS_KEY_ID=your-key \
+  --from-literal=AWS_SECRET_ACCESS_KEY=your-secret \
+  -n mlflow
+```
+
+### Use in Deployment
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+      - name: mlflow-model
+        image: gcr.io/my-project/my-model:latest
+        envFrom:
+        - configMapRef:
+            name: mlflow-model-config
+        - secretRef:
+            name: mlflow-model-secrets
+```
+
+## Ingress for External Access
+
+Expose your model service using Kubernetes Ingress:
+
+```yaml ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlflow-model-ingress
+  namespace: mlflow
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - model.example.com
+    secretName: model-tls
+  rules:
+  - host: model.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mlflow-model-service
+            port:
+              number: 80
+```
+
+**Apply ingress:**
+
+```bash
+kubectl apply -f ingress.yaml
+
+# Check ingress status
+kubectl get ingress -n mlflow
+```
+
+## Monitoring and Logging
+
+### Add Prometheus Metrics
+
+```yaml deployment-with-metrics.yaml
+spec:
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+```
+
+### Centralized Logging
+
+Configure logging to stdout/stderr for collection by your logging system:
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+      - name: mlflow-model
+        image: gcr.io/my-project/my-model:latest
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+```
+
+## Complete Deployment Example
+
+Here's a complete example with all components:
+
+```yaml mlflow-model-complete.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlflow
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlflow-model-config
+  namespace: mlflow
+data:
+  MLFLOW_TRACKING_URI: "http://mlflow-server:5000"
+  LOG_LEVEL: "INFO"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-model
+  namespace: mlflow
+  labels:
+    app: mlflow-model
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mlflow-model
+  template:
+    metadata:
+      labels:
+        app: mlflow-model
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+      - name: mlflow-model
+        image: gcr.io/my-project/my-model:v1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: mlflow-model-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-model-service
+  namespace: mlflow
+  labels:
+    app: mlflow-model
+spec:
+  selector:
+    app: mlflow-model
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+    name: http
+  type: LoadBalancer
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mlflow-model-hpa
+  namespace: mlflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mlflow-model
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+```
+
+**Deploy:**
+
+```bash
+kubectl apply -f mlflow-model-complete.yaml
+```
+
+## Making Predictions
+
+Once deployed, make predictions to your Kubernetes service:
+
+```python
+import requests
+import json
+
+# Get service endpoint
+# kubectl get service mlflow-model-service -n mlflow
+
+url = "http://<EXTERNAL-IP>/invocations"
+
+data = {
+    "dataframe_split": {
+        "columns": ["feature1", "feature2"],
+        "data": [[1.0, 2.0], [3.0, 4.0]]
+    }
+}
+
+response = requests.post(
+    url,
+    headers={"Content-Type": "application/json"},
+    data=json.dumps(data)
+)
+
+print(response.json())
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Resource Limits" icon="gauge">
+    Always set resource requests and limits
+  </Card>
+  <Card title="Health Checks" icon="heart-pulse">
+    Configure liveness and readiness probes
+  </Card>
+  <Card title="Auto-scaling" icon="arrow-up-right-dots">
+    Use HPA for automatic scaling
+  </Card>
+  <Card title="Version Tags" icon="tag">
+    Use specific image tags, not `latest`
+  </Card>
+  <Card title="Namespaces" icon="folder">
+    Isolate deployments in separate namespaces
+  </Card>
+  <Card title="Monitoring" icon="chart-line">
+    Enable Prometheus metrics and logging
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Pods not starting">
+    **Check pod status:**
+    ```bash
+    kubectl get pods -n mlflow
+    kubectl describe pod <pod-name> -n mlflow
+    kubectl logs <pod-name> -n mlflow
+    ```
+  </Accordion>
+
+  <Accordion title="Image pull errors">
+    **Verify image exists:**
+    ```bash
+    docker pull gcr.io/my-project/my-model:latest
+    ```
+
+    **Check image pull secrets:**
+    ```bash
+    kubectl create secret docker-registry regcred \
+      --docker-server=gcr.io \
+      --docker-username=_json_key \
+      --docker-password="$(cat key.json)" \
+      -n mlflow
+    ```
+  </Accordion>
+
+  <Accordion title="Service not accessible">
+    **Check service:**
+    ```bash
+    kubectl get svc -n mlflow
+    kubectl describe svc mlflow-model-service -n mlflow
+    ```
+
+    **Port forward for testing:**
+    ```bash
+    kubectl port-forward svc/mlflow-model-service 8080:80 -n mlflow
+    ```
+  </Accordion>
+
+  <Accordion title="Out of resources">
+    **Check node resources:**
+    ```bash
+    kubectl top nodes
+    kubectl describe nodes
+    ```
+
+    **Adjust resource requests:**
+    Reduce CPU/memory requests in deployment spec
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cloud Providers" icon="cloud" href="/deployment/cloud-providers">
+    Deploy to managed Kubernetes services
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/monitoring/overview">
+    Monitor model performance
+  </Card>
+  <Card title="CI/CD" icon="code-branch" href="/cicd/overview">
+    Automate deployments with CI/CD
+  </Card>
+  <Card title="Security" icon="shield" href="/security/overview">
+    Secure your Kubernetes deployments
+  </Card>
+</CardGroup>

@@ -1,0 +1,291 @@
+---
+title: LlamaIndex
+description: MLflow integration for LlamaIndex models
+---
+
+The `mlflow.llama_index` module provides an API for logging and loading LlamaIndex models. This integration supports Index, ChatEngine, QueryEngine, Retriever, and Workflow objects.
+
+## Installation
+
+```bash
+pip install mlflow[llama-index]
+```
+
+## Autologging
+
+### mlflow.llama_index.autolog()
+
+Enables (or disables) and configures autologging from LlamaIndex to MLflow. Currently, MLflow only supports autologging for tracing.
+
+<ParamField path="log_traces" type="bool" default="True">
+  If `True`, traces are logged for LlamaIndex models. If `False`, no traces are collected during inference.
+</ParamField>
+
+<ParamField path="disable" type="bool" default="False">
+  If `True`, disables the LlamaIndex autologging integration. If `False`, enables the LlamaIndex autologging integration.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If `True`, suppress all event logs and warnings from MLflow during LlamaIndex autologging. If `False`, show all events and warnings.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+
+# Enable autologging
+mlflow.llama_index.autolog()
+```
+
+## Model Logging
+
+### mlflow.llama_index.log_model()
+
+Log a LlamaIndex model as an MLflow artifact for the current run.
+
+<Note>
+Saving a non-index object is only supported in the 'Model-from-Code' saving mode. Please refer to the [Models From Code Guide](https://www.mlflow.org/docs/latest/model/models-from-code.html) for more information.
+</Note>
+
+<Note>
+When logging a model, MLflow will automatically save the state of the `Settings` object so that you can use the same settings at inference time. However, please note that some information in the `Settings` object will not be saved, including:
+- API keys for avoiding key leakage
+- Function objects which are not serializable
+</Note>
+
+<ParamField path="llama_index_model" type="BaseIndex | BaseChatEngine | BaseQueryEngine | BaseRetriever | Workflow | str" required>
+  A LlamaIndex object to be saved. Supported model types:
+  1. An Index object
+  2. An Engine object (e.g., ChatEngine, QueryEngine, Retriever)
+  3. A Workflow object
+  4. A string representing the path to a script containing the LlamaIndex model definition
+</ParamField>
+
+<ParamField path="name" type="str">
+  The name to use for logging the model artifact.
+</ParamField>
+
+<ParamField path="artifact_path" type="str">
+  Deprecated. Use `name` instead.
+</ParamField>
+
+<ParamField path="engine_type" type="str">
+  Required when saving an Index object to determine the inference interface for the index when loaded as a pyfunc model. Supported values:
+  - `"chat"` - load the index as a ChatEngine
+  - `"query"` - load the index as a QueryEngine
+  - `"retriever"` - load the index as a Retriever
+  
+  This field is not required when saving other LlamaIndex objects.
+</ParamField>
+
+<ParamField path="model_config" type="dict[str, Any]">
+  The model configuration to apply when loading the model back with `mlflow.pyfunc.load_model()`. 
+  
+  For in-memory Index objects saved directly, it will be passed as keyword arguments to instantiate the LlamaIndex engine with the specified engine type.
+  
+  For other model types saved with the Models-from-Code method, the config will be accessed via the `mlflow.models.ModelConfig` object within your model code.
+</ParamField>
+
+<ParamField path="code_paths" type="list[str]">
+  A list of local filesystem paths to Python file dependencies (or directories containing file dependencies).
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under `registered_model_name`, also creating a registered model if one with the given name does not exist.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  A ModelSignature object that describes the input and output schema of the model. The model signature can be inferred using `infer_signature` function of `mlflow.models.signature`.
+</ParamField>
+
+<ParamField path="input_example" type="pd.DataFrame | np.ndarray | dict | list">
+  Input example provides one or several instances of valid model input.
+</ParamField>
+
+<ParamField path="await_registration_for" type="int" default="300">
+  Number of seconds to wait for the model version to finish being created and is in READY status. By default, the function waits for five minutes. Specify 0 or None to skip waiting.
+</ParamField>
+
+<ParamField path="pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="extra_pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings to add to the model requirements, or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="conda_env" type="str | dict">
+  Either a dictionary representation of a Conda environment or the path to a conda environment yaml file.
+</ParamField>
+
+<ParamField path="metadata" type="dict">
+  Custom metadata dictionary passed to the model and stored in the MLmodel file.
+</ParamField>
+
+<ParamField path="prompts" type="list[str | Prompt]">
+  A list of prompts to associate with the model.
+</ParamField>
+
+<ParamField path="params" type="dict[str, Any]">
+  Additional parameters to associate with the model.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any]">
+  Tags to associate with the model.
+</ParamField>
+
+<ParamField path="model_type" type="str">
+  The type of the model.
+</ParamField>
+
+<ParamField path="step" type="int" default="0">
+  The training step at which the model was logged.
+</ParamField>
+
+<ParamField path="model_id" type="str">
+  A unique identifier for the model.
+</ParamField>
+
+**Returns:** A `ModelInfo` instance that contains the metadata of the logged model.
+
+**Example (Index with engine_type):**
+
+```python
+import mlflow
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+
+documents = SimpleDirectoryReader("data").load_data()
+index = VectorStoreIndex.from_documents(documents)
+
+with mlflow.start_run():
+    model_info = mlflow.llama_index.log_model(
+        index,
+        name="index",
+        engine_type="chat",
+        model_config={"top_k": 10},
+    )
+
+# When loading back, MLflow will call index.as_chat_engine(top_k=10)
+engine = mlflow.pyfunc.load_model(model_info.model_uri)
+```
+
+**Example (Models-from-Code):**
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    model_info = mlflow.llama_index.log_model(
+        "model.py",
+        name="model",
+        model_config={"qdrant_host": "localhost", "qdrant_port": 6333},
+    )
+```
+
+model.py:
+
+```python
+import mlflow
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+import qdrant_client
+
+# The model configuration is accessible via the ModelConfig singleton
+model_config = mlflow.models.ModelConfig()
+qdrant_host = model_config.get("qdrant_host", "localhost")
+qdrant_port = model_config.get("qdrant_port", 6333)
+
+client = qdrant_client.Client(host=qdrant_host, port=qdrant_port)
+vectorstore = QdrantVectorStore(client)
+
+# the rest of the model definition...
+```
+
+### mlflow.llama_index.save_model()
+
+Save a LlamaIndex model to a path on the local file system.
+
+Accepts the same parameters as `log_model()`, with `path` instead of `name`:
+
+<ParamField path="path" type="str" required>
+  Local path where the serialized model is to be saved.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+
+documents = SimpleDirectoryReader("data").load_data()
+index = VectorStoreIndex.from_documents(documents)
+
+mlflow.llama_index.save_model(
+    index,
+    path="model",
+    engine_type="query",
+)
+```
+
+## Model Loading
+
+### mlflow.llama_index.load_model()
+
+Load a LlamaIndex index/engine/workflow from a local file or a run.
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes include:
+  - `/Users/me/path/to/local/model`
+  - `relative/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+  - `mlflow-artifacts:/path/to/model`
+</ParamField>
+
+<ParamField path="dst_path" type="str">
+  The local filesystem path to utilize for downloading the model artifact. This directory must already exist if provided. If unspecified, a local output path will be created.
+</ParamField>
+
+**Returns:** A LlamaIndex index object.
+
+**Example:**
+
+```python
+import mlflow
+
+index = mlflow.llama_index.load_model("runs:/abc123/model")
+query_engine = index.as_query_engine()
+response = query_engine.query("What is the capital of France?")
+print(response)
+```
+
+## Supported Model Types
+
+The LlamaIndex integration supports the following model types:
+
+- **BaseIndex** - Vector store index and other index types
+- **BaseChatEngine** - Chat engines for conversational interfaces
+- **BaseQueryEngine** - Query engines for Q&A
+- **BaseRetriever** - Retrievers for document retrieval
+- **Workflow** - LlamaIndex workflow objects
+
+## Engine Types
+
+When logging an Index object, specify the `engine_type` parameter to determine how the index is loaded:
+
+| Engine Type | Description | Method Called |
+|------------|-------------|---------------|
+| `chat` | Load as ChatEngine | `index.as_chat_engine(**model_config)` |
+| `query` | Load as QueryEngine | `index.as_query_engine(**model_config)` |
+| `retriever` | Load as Retriever | `index.as_retriever(**model_config)` |
+
+## Settings Serialization
+
+MLflow automatically saves the state of the LlamaIndex `Settings` singleton when logging a model. This includes:
+
+- LLM configuration
+- Embedding model configuration
+- Node parser settings
+- Callback manager settings
+
+**Note:** API keys and function objects are not serialized for security and compatibility reasons.

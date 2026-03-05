@@ -1,0 +1,504 @@
+---
+title: Runs
+description: Deep dive into MLflow Runs - the fundamental unit of execution in MLflow
+---
+
+## What is a Run?
+
+A run is a single execution of machine learning code. It's the fundamental unit of organization in MLflow, representing one iteration of model training, evaluation, or any other ML task you want to track.
+
+Each run records:
+- Parameters (input configuration)
+- Metrics (output measurements)
+- Tags (metadata)
+- Artifacts (output files)
+- Source code version and entry point
+- Start and end times
+- Execution status
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/run.py:12-29`
+
+## Run Structure
+
+A `Run` object consists of two main components:
+
+### RunInfo - Metadata
+
+Contains metadata about the run execution:
+
+```python
+from mlflow.entities import Run
+
+# Access run information
+run.info.run_id              # Unique run identifier
+run.info.experiment_id       # Parent experiment ID
+run.info.run_name           # Human-readable name
+run.info.user_id            # User who created the run
+run.info.status             # RUNNING, FINISHED, FAILED, KILLED
+run.info.start_time         # Start timestamp (milliseconds)
+run.info.end_time           # End timestamp (milliseconds)
+run.info.artifact_uri       # Location of artifacts
+run.info.lifecycle_stage    # 'active' or 'deleted'
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/run_info.py:29-62`
+
+### RunData - Logged Information
+
+Contains the actual logged data:
+
+```python
+# Access run data
+run.data.metrics            # Dict of metric_name -> latest_value
+run.data.params             # Dict of param_name -> value
+run.data.tags               # Dict of tag_name -> value
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/run_data.py:10-48`
+
+### RunInputs and RunOutputs
+
+Tracks inputs and outputs:
+
+```python
+# Access run inputs (datasets, etc.)
+run.inputs.dataset_inputs   # List of dataset inputs
+
+# Access run outputs (models, etc.)
+run.outputs.model_outputs   # List of logged models
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/run.py:50-65`
+
+## Starting and Managing Runs
+
+### Basic Run Lifecycle
+
+```python
+import mlflow
+
+# Method 1: Context manager (recommended)
+with mlflow.start_run(run_name="training-run-1") as run:
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_metric("accuracy", 0.95)
+    print(f"Run ID: {run.info.run_id}")
+# Run automatically ends when exiting the context
+
+# Method 2: Manual management
+run = mlflow.start_run(run_name="training-run-2")
+try:
+    mlflow.log_param("epochs", 100)
+    mlflow.log_metric("loss", 0.05)
+finally:
+    mlflow.end_run()  # Always end the run
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/__init__.py:14-22`
+
+### Run Names and Descriptions
+
+```python
+import mlflow
+from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME, MLFLOW_RUN_NOTE
+
+# Set run name at creation
+with mlflow.start_run(run_name="resnet50-baseline") as run:
+    mlflow.log_param("model", "resnet50")
+
+# Add a description/note to the run
+with mlflow.start_run() as run:
+    mlflow.set_tag(MLFLOW_RUN_NOTE, """Baseline model with default hyperparameters.
+    This run establishes performance benchmarks for comparison.""")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/utils/mlflow_tags.py:82-83`
+
+### Nested Runs
+
+Create hierarchical run structures for complex workflows:
+
+```python
+import mlflow
+
+# Parent run for hyperparameter search
+with mlflow.start_run(run_name="hyperparameter-search") as parent_run:
+    mlflow.log_param("search_type", "grid")
+    
+    # Child runs for individual configurations
+    for lr in [0.001, 0.01, 0.1]:
+        with mlflow.start_run(run_name=f"lr-{lr}", nested=True) as child_run:
+            mlflow.log_param("learning_rate", lr)
+            
+            # Train and evaluate
+            accuracy = train_model(lr)
+            mlflow.log_metric("accuracy", accuracy)
+            
+            print(f"Child run {child_run.info.run_id} under parent {parent_run.info.run_id}")
+```
+
+### Getting Parent Runs
+
+```python
+import mlflow
+
+with mlflow.start_run(run_name="parent") as parent:
+    with mlflow.start_run(run_name="child", nested=True) as child:
+        # Get the parent run from within a nested run
+        parent_run = mlflow.get_parent_run(child.info.run_id)
+        print(f"Parent: {parent_run.info.run_name}")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/utils/mlflow_tags.py:81`
+
+## Run Status
+
+Runs can have different statuses throughout their lifecycle:
+
+```python
+from mlflow.entities import RunStatus
+
+# Possible run statuses
+RunStatus.RUNNING    # Run is currently executing
+RunStatus.SCHEDULED  # Run is scheduled but not started
+RunStatus.FINISHED   # Run completed successfully
+RunStatus.FAILED     # Run failed with an error
+RunStatus.KILLED     # Run was manually terminated
+```
+
+## Accessing Runs
+
+### Get Active Run
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Get currently active run
+    active_run = mlflow.active_run()
+    if active_run:
+        print(f"Active run: {active_run.info.run_id}")
+        print(f"Status: {active_run.info.status}")
+```
+
+### Get Run by ID
+
+```python
+import mlflow
+
+# Retrieve a specific run
+run = mlflow.get_run("abc123def456")
+print(f"Run name: {run.info.run_name}")
+print(f"Metrics: {run.data.metrics}")
+print(f"Parameters: {run.data.params}")
+```
+
+### Get Last Active Run
+
+```python
+import mlflow
+
+# Get the most recently active run
+last_run = mlflow.last_active_run()
+if last_run:
+    print(f"Last run ID: {last_run.info.run_id}")
+```
+
+## Logging to Runs
+
+### Parameters
+
+Parameters are immutable configuration values:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Single parameter
+    mlflow.log_param("max_depth", 5)
+    
+    # Multiple parameters
+    mlflow.log_params({
+        "n_estimators": 100,
+        "min_samples_split": 2,
+        "criterion": "gini"
+    })
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/param.py:7-30`
+
+### Metrics
+
+Metrics are numeric values that can be updated over time:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log metrics with steps for tracking progress
+    for epoch in range(100):
+        train_loss = train_epoch()
+        val_loss = validate()
+        
+        mlflow.log_metric("train_loss", train_loss, step=epoch)
+        mlflow.log_metric("val_loss", val_loss, step=epoch)
+    
+    # Log final metrics
+    mlflow.log_metrics({
+        "final_accuracy": 0.95,
+        "final_f1": 0.93
+    })
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/metric.py:13-57`
+
+### Tags
+
+Tags are key-value metadata for organizing and filtering runs:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Single tag
+    mlflow.set_tag("model_type", "random_forest")
+    
+    # Multiple tags
+    mlflow.set_tags({
+        "dataset_version": "v2.1",
+        "preprocessing": "standard_scaler",
+        "feature_selection": "true"
+    })
+    
+    # Delete a tag
+    mlflow.delete_tag("old_tag")
+```
+
+### Artifacts
+
+Log files, models, and other outputs:
+
+```python
+import mlflow
+import pandas as pd
+
+with mlflow.start_run():
+    # Log files
+    mlflow.log_artifact("trained_model.pkl")
+    mlflow.log_artifacts("output_directory/")
+    
+    # Log tables
+    df = pd.DataFrame({"feature": [1, 2], "importance": [0.8, 0.2]})
+    mlflow.log_table(df, "feature_importance.json")
+    
+    # Log images
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3], [1, 4, 9])
+    mlflow.log_figure(fig, "training_curve.png")
+```
+
+## Searching Runs
+
+### Filter and Order Runs
+
+```python
+import mlflow
+
+# Search with filters
+runs = mlflow.search_runs(
+    experiment_ids=["1", "2"],
+    filter_string="metrics.accuracy > 0.9 AND params.model_type = 'cnn'",
+    order_by=["metrics.accuracy DESC"],
+    max_results=20
+)
+
+for _, run in runs.iterrows():
+    print(f"Run {run.run_id}: accuracy = {run['metrics.accuracy']}")
+```
+
+### Advanced Search Queries
+
+```python
+import mlflow
+from mlflow.entities import ViewType
+
+# Search with complex filters
+runs = mlflow.search_runs(
+    filter_string="""
+        metrics.f1_score > 0.85 AND
+        params.framework = 'pytorch' AND
+        tags.stage = 'production'
+    """,
+    order_by=["start_time DESC"],
+    max_results=50,
+    run_view_type=ViewType.ACTIVE_ONLY
+)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/tracking/fluent.py:112`
+
+## Deleting Runs
+
+```python
+import mlflow
+
+# Delete a specific run
+mlflow.delete_run("run_id_here")
+
+# Runs are soft-deleted and can be restored
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+client.restore_run("run_id_here")
+```
+
+## Environment Variables
+
+Control run behavior with environment variables:
+
+```bash
+# Resume an existing run
+export MLFLOW_RUN_ID="abc123def456"
+
+# Enable async logging for better performance
+export MLFLOW_ENABLE_ASYNC_LOGGING=true
+
+# Enable system metrics collection
+export MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING=true
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/environment_variables:40-41`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Use Context Managers">
+    Use `with mlflow.start_run()` to ensure runs are properly closed even if exceptions occur:
+    
+    ```python
+    # Good
+    with mlflow.start_run():
+        train_model()
+    
+    # Avoid
+    mlflow.start_run()
+    train_model()
+    mlflow.end_run()  # May not be called if exception occurs
+    ```
+  </Accordion>
+  
+  <Accordion title="Set Descriptive Run Names">
+    Use meaningful names that describe what the run does:
+    
+    ```python
+    # Good
+    with mlflow.start_run(run_name="resnet50-imagenet-lr0.01"):
+        ...
+    
+    # Avoid
+    with mlflow.start_run(run_name="run1"):
+        ...
+    ```
+  </Accordion>
+  
+  <Accordion title="Log Parameters First">
+    Log all parameters at the start of your run before training begins. This helps with debugging if runs fail.
+  </Accordion>
+  
+  <Accordion title="Use Steps for Metrics">
+    Always log metrics with step numbers to track progress over time:
+    
+    ```python
+    for epoch in range(num_epochs):
+        loss = train_epoch()
+        mlflow.log_metric("loss", loss, step=epoch)
+    ```
+  </Accordion>
+  
+  <Accordion title="Add Context with Tags">
+    Use tags to add searchable metadata:
+    
+    ```python
+    mlflow.set_tags({
+        "git_commit": "abc123",
+        "dataset_version": "v2.0",
+        "environment": "production"
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+<CodeGroup>
+```python Training Loop
+import mlflow
+
+with mlflow.start_run(run_name="training-session"):
+    # Log hyperparameters
+    mlflow.log_params({
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "epochs": 100
+    })
+    
+    # Training loop
+    for epoch in range(100):
+        train_loss = train_epoch()
+        val_loss = validate()
+        
+        mlflow.log_metrics({
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        }, step=epoch)
+    
+    # Log final results
+    mlflow.log_metric("final_accuracy", test_accuracy)
+    mlflow.log_artifact("model.pkl")
+```
+
+```python Hyperparameter Search
+import mlflow
+
+with mlflow.start_run(run_name="grid-search") as parent:
+    for lr in [0.001, 0.01, 0.1]:
+        for bs in [16, 32, 64]:
+            with mlflow.start_run(run_name=f"lr{lr}-bs{bs}", nested=True):
+                mlflow.log_params({"lr": lr, "batch_size": bs})
+                accuracy = train_and_evaluate(lr, bs)
+                mlflow.log_metric("accuracy", accuracy)
+```
+
+```python Cross-Validation
+import mlflow
+
+with mlflow.start_run(run_name="cross-validation") as parent:
+    scores = []
+    for fold in range(5):
+        with mlflow.start_run(run_name=f"fold-{fold}", nested=True):
+            score = train_fold(fold)
+            mlflow.log_metric("accuracy", score)
+            scores.append(score)
+    
+    # Log aggregated results in parent
+    mlflow.log_metric("mean_cv_accuracy", np.mean(scores))
+    mlflow.log_metric("std_cv_accuracy", np.std(scores))
+```
+</CodeGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Experiments" icon="flask" href="./experiments">
+    Organize runs into experiments
+  </Card>
+  <Card title="Tracking" icon="chart-mixed" href="./tracking">
+    Learn about the tracking system
+  </Card>
+  <Card title="Artifacts" icon="file" href="./artifacts">
+    Manage run outputs and files
+  </Card>
+  <Card title="Models" icon="cube" href="./models">
+    Log and version models
+  </Card>
+</CardGroup>

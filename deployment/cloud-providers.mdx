@@ -1,0 +1,771 @@
+---
+title: Cloud Platform Deployment
+description: Deploy MLflow models to AWS SageMaker, Azure ML, and Google Cloud Platform
+---
+
+MLflow provides native integrations with major cloud platforms for deploying machine learning models at scale. Choose the platform that fits your infrastructure and requirements.
+
+## Cloud Platform Options
+
+<CardGroup cols={3}>
+  <Card title="AWS SageMaker" icon="aws">
+    Amazon's fully managed ML service
+  </Card>
+  <Card title="Azure ML" icon="microsoft">
+    Microsoft Azure Machine Learning
+  </Card>
+  <Card title="Google Cloud" icon="google">
+    Google Cloud AI Platform
+  </Card>
+</CardGroup>
+
+## AWS SageMaker Deployment
+
+Deploy MLflow models to Amazon SageMaker for managed, scalable model serving.
+
+### Prerequisites
+
+<Steps>
+  <Step title="AWS Credentials">
+    Configure AWS credentials with appropriate permissions
+    ```bash
+    aws configure
+    ```
+  </Step>
+
+  <Step title="IAM Execution Role">
+    Create an IAM role for SageMaker with permissions to access S3 and ECR
+  </Step>
+
+  <Step title="S3 Bucket">
+    Create an S3 bucket for storing model artifacts
+  </Step>
+
+  <Step title="ECR Repository">
+    Create an ECR repository for Docker images (optional)
+  </Step>
+</Steps>
+
+### Deploy to SageMaker
+
+<Tabs>
+  <Tab title="Python API">
+    ```python
+    import mlflow.sagemaker
+
+    # Deploy model to SageMaker
+    mlflow.sagemaker.deploy(
+        app_name="my-model-app",
+        model_uri="models:/my-model/production",
+        execution_role_arn="arn:aws:iam::123456789012:role/SageMakerRole",
+        region_name="us-west-2",
+        mode="create",
+        instance_type="ml.m5.xlarge",
+        instance_count=2,
+        vpc_config={
+            "SecurityGroupIds": ["sg-12345678"],
+            "Subnets": ["subnet-12345678", "subnet-87654321"]
+        }
+    )
+    ```
+  </Tab>
+
+  <Tab title="CLI">
+    ```bash
+    mlflow sagemaker deploy \
+      --app-name my-model-app \
+      --model-uri models:/my-model/production \
+      --execution-role-arn arn:aws:iam::123456789012:role/SageMakerRole \
+      --region-name us-west-2 \
+      --mode create \
+      --instance-type ml.m5.xlarge \
+      --instance-count 2
+    ```
+  </Tab>
+</Tabs>
+
+### Deployment Parameters
+
+<ParamField path="app_name" type="string" required>
+  Name of the SageMaker application/endpoint
+</ParamField>
+
+<ParamField path="model_uri" type="string" required>
+  URI of the MLflow model to deploy
+  - `models:/model-name/version`
+  - `models:/model-name/stage`
+  - `runs:/run-id/path`
+  - `s3://bucket/path`
+</ParamField>
+
+<ParamField path="execution_role_arn" type="string">
+  IAM role ARN for SageMaker to access resources. If not specified, uses the currently assumed role.
+</ParamField>
+
+<ParamField path="region_name" type="string" default="us-west-2">
+  AWS region for deployment
+</ParamField>
+
+<ParamField path="mode" type="string" default="create">
+  Deployment mode:
+  - `create` - Create new endpoint
+  - `replace` - Replace existing endpoint
+  - `add` - Add model variant to existing endpoint
+</ParamField>
+
+<ParamField path="instance_type" type="string" default="ml.m4.xlarge">
+  SageMaker instance type. See [SageMaker pricing](https://aws.amazon.com/sagemaker/pricing/instance-types/) for options.
+</ParamField>
+
+<ParamField path="instance_count" type="integer" default="1">
+  Number of instances for the endpoint
+</ParamField>
+
+### SageMaker Instance Types
+
+Common instance types for model deployment:
+
+| Instance Type | vCPU | Memory | Use Case |
+|--------------|------|--------|----------|
+| ml.t2.medium | 2 | 4 GB | Development/testing |
+| ml.m5.xlarge | 4 | 16 GB | General purpose |
+| ml.c5.2xlarge | 8 | 16 GB | CPU-intensive models |
+| ml.p3.2xlarge | 8 | 61 GB | GPU-accelerated inference |
+| ml.inf1.xlarge | 4 | 8 GB | AWS Inferentia chips |
+
+### Batch Transform Jobs
+
+Deploy models for batch inference using SageMaker Transform Jobs:
+
+```python
+import mlflow.sagemaker
+
+mlflow.sagemaker.deploy_transform_job(
+    job_name="my-batch-transform",
+    model_uri="models:/my-model/production",
+    s3_input_data_type="S3Prefix",
+    s3_input_uri="s3://my-bucket/input-data/",
+    content_type="text/csv",
+    s3_output_path="s3://my-bucket/output/",
+    instance_type="ml.m5.xlarge",
+    instance_count=2,
+    region_name="us-west-2"
+)
+```
+
+### Making Predictions
+
+Once deployed, make predictions to your SageMaker endpoint:
+
+```python
+import boto3
+import json
+
+runtime = boto3.client("sagemaker-runtime", region_name="us-west-2")
+
+# Prepare input data
+payload = {
+    "dataframe_split": {
+        "columns": ["feature1", "feature2"],
+        "data": [[1.0, 2.0], [3.0, 4.0]]
+    }
+}
+
+# Invoke endpoint
+response = runtime.invoke_endpoint(
+    EndpointName="my-model-app",
+    ContentType="application/json",
+    Body=json.dumps(payload)
+)
+
+# Parse predictions
+predictions = json.loads(response["Body"].read())
+print(predictions)
+```
+
+### Building and Pushing Docker Images
+
+For custom containers, build and push to Amazon ECR:
+
+```bash
+# Build Docker image
+mlflow sagemaker build-and-push-container \
+  --no-push \
+  --mlflow-home /path/to/mlflow
+
+# Or push to ECR
+mlflow sagemaker build-and-push-container
+```
+
+Using the Python API:
+
+```python
+import mlflow.sagemaker
+
+# Build and push image to ECR
+image_uri = mlflow.sagemaker.build_and_push_container()
+print(f"Image pushed to: {image_uri}")
+```
+
+### Serverless Inference
+
+Deploy models using SageMaker Serverless Inference:
+
+```python
+mlflow.sagemaker.deploy(
+    app_name="my-serverless-model",
+    model_uri="models:/my-model/production",
+    execution_role_arn="arn:aws:iam::123456789012:role/SageMakerRole",
+    region_name="us-west-2",
+    mode="create",
+    serverless_config={
+        "MemorySizeInMB": 2048,
+        "MaxConcurrency": 10
+    }
+)
+```
+
+### Update Existing Deployment
+
+Update a deployed model with a new version:
+
+```python
+mlflow.sagemaker.deploy(
+    app_name="my-model-app",
+    model_uri="models:/my-model/2",  # New version
+    execution_role_arn="arn:aws:iam::123456789012:role/SageMakerRole",
+    mode="replace",  # Replace existing deployment
+    region_name="us-west-2"
+)
+```
+
+### Delete Deployment
+
+Remove a SageMaker endpoint:
+
+```python
+import mlflow.sagemaker
+
+mlflow.sagemaker.delete(
+    app_name="my-model-app",
+    region_name="us-west-2",
+    archive=False  # Delete model artifacts
+)
+```
+
+## Azure Machine Learning
+
+Deploy MLflow models to Azure ML for managed inference endpoints.
+
+### Prerequisites
+
+<Steps>
+  <Step title="Azure CLI">
+    Install and configure Azure CLI
+    ```bash
+    az login
+    az account set --subscription <subscription-id>
+    ```
+  </Step>
+
+  <Step title="Azure ML Workspace">
+    Create an Azure ML workspace
+    ```bash
+    az ml workspace create \
+      --name my-workspace \
+      --resource-group my-resource-group
+    ```
+  </Step>
+
+  <Step title="Azure Container Registry">
+    Create ACR for storing Docker images
+  </Step>
+</Steps>
+
+### Deploy to Azure ML
+
+```python
+from azureml.core import Workspace
+from azureml.core.webservice import AciWebservice
+import mlflow.azureml
+
+# Connect to workspace
+workspace = Workspace.from_config()
+
+# Build container image
+model_image, azure_model = mlflow.azureml.build_image(
+    model_uri="models:/my-model/production",
+    workspace=workspace,
+    model_name="my-model",
+    image_name="my-model-image",
+    description="My MLflow model",
+    synchronous=True
+)
+
+# Deploy to Azure Container Instances
+aci_config = AciWebservice.deploy_configuration(
+    cpu_cores=2,
+    memory_gb=4,
+    auth_enabled=True,
+    enable_app_insights=True
+)
+
+webservice = mlflow.azureml.deploy(
+    model_uri="models:/my-model/production",
+    workspace=workspace,
+    deployment_config=aci_config,
+    service_name="my-model-service"
+)
+
+print(f"Scoring URI: {webservice.scoring_uri}")
+```
+
+### Deploy to Azure Kubernetes Service (AKS)
+
+For production workloads, deploy to AKS:
+
+```python
+from azureml.core.compute import AksCompute, ComputeTarget
+from azureml.core.webservice import AksWebservice
+
+# Create or attach AKS cluster
+aks_config = AksCompute.provisioning_configuration(
+    agent_count=3,
+    vm_size="Standard_D3_v2",
+    location="eastus"
+)
+
+aks_target = ComputeTarget.create(
+    workspace=workspace,
+    name="my-aks-cluster",
+    provisioning_configuration=aks_config
+)
+
+aks_target.wait_for_completion(show_output=True)
+
+# Configure AKS deployment
+aks_config = AksWebservice.deploy_configuration(
+    cpu_cores=2,
+    memory_gb=4,
+    autoscale_enabled=True,
+    autoscale_min_replicas=2,
+    autoscale_max_replicas=10,
+    auth_enabled=True,
+    enable_app_insights=True
+)
+
+# Deploy
+webservice = mlflow.azureml.deploy(
+    model_uri="models:/my-model/production",
+    workspace=workspace,
+    deployment_config=aks_config,
+    service_name="my-model-aks",
+    compute_target=aks_target
+)
+```
+
+### Making Predictions (Azure)
+
+```python
+import requests
+import json
+
+# Get scoring URI and keys
+scoring_uri = webservice.scoring_uri
+key = webservice.get_keys()[0]
+
+# Prepare request
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {key}"
+}
+
+data = {
+    "dataframe_split": {
+        "columns": ["feature1", "feature2"],
+        "data": [[1.0, 2.0], [3.0, 4.0]]
+    }
+}
+
+# Make prediction
+response = requests.post(scoring_uri, headers=headers, data=json.dumps(data))
+predictions = response.json()
+print(predictions)
+```
+
+### Azure ML Model Registry
+
+Register MLflow models in Azure ML:
+
+```python
+import mlflow.azureml
+
+# Register model
+azure_model = mlflow.azureml.register_model(
+    model_uri="models:/my-model/production",
+    workspace=workspace,
+    model_name="my-model-azure"
+)
+
+print(f"Model registered: {azure_model.name}, version: {azure_model.version}")
+```
+
+## Google Cloud Platform
+
+Deploy MLflow models to Google Cloud AI Platform (Vertex AI).
+
+### Prerequisites
+
+<Steps>
+  <Step title="Google Cloud SDK">
+    Install and configure gcloud CLI
+    ```bash
+    gcloud init
+    gcloud auth application-default login
+    ```
+  </Step>
+
+  <Step title="Enable APIs">
+    Enable required GCP APIs
+    ```bash
+    gcloud services enable aiplatform.googleapis.com
+    gcloud services enable containerregistry.googleapis.com
+    ```
+  </Step>
+
+  <Step title="GCS Bucket">
+    Create a Cloud Storage bucket for models
+    ```bash
+    gsutil mb -l us-central1 gs://my-model-bucket
+    ```
+  </Step>
+</Steps>
+
+### Deploy to Vertex AI
+
+```python
+from google.cloud import aiplatform
+import mlflow
+
+# Initialize Vertex AI
+aiplatform.init(
+    project="my-project-id",
+    location="us-central1",
+    staging_bucket="gs://my-model-bucket"
+)
+
+# Build and push container to GCR
+mlflow.models.build_docker(
+    model_uri="models:/my-model/production",
+    name="gcr.io/my-project-id/my-model:latest"
+)
+
+# Push to GCR
+import subprocess
+subprocess.run([
+    "docker", "push", "gcr.io/my-project-id/my-model:latest"
+], check=True)
+
+# Create Vertex AI model
+model = aiplatform.Model.upload(
+    display_name="my-mlflow-model",
+    artifact_uri="gs://my-model-bucket/models/my-model",
+    serving_container_image_uri="gcr.io/my-project-id/my-model:latest",
+    serving_container_ports=[8080],
+    serving_container_predict_route="/invocations",
+    serving_container_health_route="/ping"
+)
+
+# Deploy to endpoint
+endpoint = model.deploy(
+    deployed_model_display_name="my-model-v1",
+    machine_type="n1-standard-4",
+    min_replica_count=1,
+    max_replica_count=3,
+    accelerator_type="NVIDIA_TESLA_T4",
+    accelerator_count=1
+)
+
+print(f"Endpoint deployed: {endpoint.resource_name}")
+```
+
+### Making Predictions (GCP)
+
+```python
+from google.cloud import aiplatform
+
+# Get endpoint
+endpoint = aiplatform.Endpoint("projects/.../locations/.../endpoints/...")
+
+# Make prediction
+instances = [
+    {"feature1": 1.0, "feature2": 2.0},
+    {"feature1": 3.0, "feature2": 4.0}
+]
+
+predictions = endpoint.predict(instances=instances)
+print(predictions.predictions)
+```
+
+### Batch Predictions on Vertex AI
+
+```python
+from google.cloud import aiplatform
+
+# Create batch prediction job
+batch_prediction_job = aiplatform.BatchPredictionJob.create(
+    job_display_name="my-batch-prediction",
+    model_name=model.resource_name,
+    instances_format="jsonl",
+    gcs_source="gs://my-bucket/input/data.jsonl",
+    gcs_destination_prefix="gs://my-bucket/output/",
+    machine_type="n1-standard-4",
+    accelerator_count=1,
+    accelerator_type="NVIDIA_TESLA_T4"
+)
+
+# Wait for completion
+batch_prediction_job.wait()
+print(f"Predictions saved to: {batch_prediction_job.output_info.gcs_output_directory}")
+```
+
+## Cloud-Specific Best Practices
+
+<Tabs>
+  <Tab title="AWS SageMaker">
+    <CardGroup cols={2}>
+      <Card title="Use VPC Endpoints" icon="network-wired">
+        Deploy in VPC for better security and lower data transfer costs
+      </Card>
+      <Card title="Enable Auto-scaling" icon="arrow-up-right-dots">
+        Configure auto-scaling for variable workloads
+      </Card>
+      <Card title="Use Spot Instances" icon="dollar-sign">
+        Save costs with managed spot training for batch inference
+      </Card>
+      <Card title="Monitor with CloudWatch" icon="chart-line">
+        Enable CloudWatch metrics and logs
+      </Card>
+    </CardGroup>
+  </Tab>
+
+  <Tab title="Azure ML">
+    <CardGroup cols={2}>
+      <Card title="Enable App Insights" icon="chart-line">
+        Use Application Insights for monitoring
+      </Card>
+      <Card title="Use Managed Identity" icon="shield">
+        Authenticate with managed identities instead of keys
+      </Card>
+      <Card title="Configure Auto-scaling" icon="arrow-up-right-dots">
+        Set min/max replicas for AKS deployments
+      </Card>
+      <Card title="Enable Authentication" icon="lock">
+        Always enable authentication for production endpoints
+      </Card>
+    </CardGroup>
+  </Tab>
+
+  <Tab title="Google Cloud">
+    <CardGroup cols={2}>
+      <Card title="Use Artifact Registry" icon="box">
+        Store containers in Artifact Registry instead of GCR
+      </Card>
+      <Card title="Enable Monitoring" icon="chart-line">
+        Use Cloud Monitoring and Cloud Logging
+      </Card>
+      <Card title="Configure Auto-scaling" icon="arrow-up-right-dots">
+        Set replica count ranges for variable loads
+      </Card>
+      <Card title="Use Service Accounts" icon="user-shield">
+        Deploy with least-privilege service accounts
+      </Card>
+    </CardGroup>
+  </Tab>
+</Tabs>
+
+## Multi-Cloud Comparison
+
+| Feature | AWS SageMaker | Azure ML | Google Cloud Vertex AI |
+|---------|---------------|----------|----------------------|
+| **Real-time Inference** | Yes | Yes (ACI/AKS) | Yes |
+| **Batch Inference** | Transform Jobs | Batch Endpoints | Batch Predictions |
+| **Auto-scaling** | Yes | Yes | Yes |
+| **Serverless** | Yes | Yes (ACI) | No |
+| **GPU Support** | Yes | Yes | Yes |
+| **Custom Containers** | Yes | Yes | Yes |
+| **Model Registry** | Yes | Yes | Yes |
+| **A/B Testing** | Multi-variant | Traffic split | Traffic split |
+
+## Cost Optimization
+
+<AccordionGroup>
+  <Accordion title="AWS Cost Optimization">
+    - Use **Serverless Inference** for sporadic traffic
+    - Enable **auto-scaling** to scale down during low traffic
+    - Use **Savings Plans** for predictable workloads
+    - Choose appropriate **instance types** (avoid over-provisioning)
+    - Delete unused **endpoints and models**
+  </Accordion>
+
+  <Accordion title="Azure Cost Optimization">
+    - Use **ACI** for dev/test, **AKS** for production
+    - Enable **auto-scaling** with appropriate min/max replicas
+    - Use **reserved instances** for long-running deployments
+    - Monitor costs with **Azure Cost Management**
+    - Clean up unused **services and resources**
+  </Accordion>
+
+  <Accordion title="GCP Cost Optimization">
+    - Use **committed use discounts** for steady workloads
+    - Enable **auto-scaling** with proper replica limits
+    - Choose **appropriate machine types** based on workload
+    - Use **preemptible VMs** for batch inference
+    - Monitor with **Cloud Billing reports**
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring and Logging
+
+### AWS CloudWatch
+
+```python
+import boto3
+
+cloudwatch = boto3.client("cloudwatch")
+
+# Get endpoint metrics
+response = cloudwatch.get_metric_statistics(
+    Namespace="AWS/SageMaker",
+    MetricName="ModelLatency",
+    Dimensions=[
+        {"Name": "EndpointName", "Value": "my-model-app"},
+        {"Name": "VariantName", "Value": "AllTraffic"}
+    ],
+    StartTime=datetime.now() - timedelta(hours=1),
+    EndTime=datetime.now(),
+    Period=300,
+    Statistics=["Average", "Maximum"]
+)
+```
+
+### Azure Application Insights
+
+```python
+from azureml.core.webservice import Webservice
+
+# Enable logging
+webservice.update(enable_app_insights=True)
+
+# View logs
+logs = webservice.get_logs()
+print(logs)
+```
+
+### Google Cloud Monitoring
+
+```python
+from google.cloud import monitoring_v3
+
+client = monitoring_v3.MetricServiceClient()
+project_name = f"projects/{project_id}"
+
+# Query metrics
+results = client.list_time_series(
+    request={
+        "name": project_name,
+        "filter": 'resource.type="aiplatform.googleapis.com/Endpoint"',
+        "interval": interval,
+        "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL
+    }
+)
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="IAM/RBAC" icon="users">
+    Use least-privilege access control for all cloud resources
+  </Card>
+  <Card title="Encryption" icon="lock">
+    Enable encryption at rest and in transit
+  </Card>
+  <Card title="VPC/VNet" icon="network-wired">
+    Deploy endpoints in private networks
+  </Card>
+  <Card title="Authentication" icon="key">
+    Enable API key or token-based authentication
+  </Card>
+  <Card title="Audit Logging" icon="file-lines">
+    Enable audit logs for compliance
+  </Card>
+  <Card title="Secrets Management" icon="vault">
+    Use cloud-native secrets managers
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="SageMaker deployment fails">
+    **Check IAM permissions:**
+    ```bash
+    aws iam get-role --role-name SageMakerRole
+    ```
+
+    **View endpoint logs:**
+    ```python
+    import boto3
+    logs = boto3.client("logs")
+    response = logs.filter_log_events(
+        logGroupName="/aws/sagemaker/Endpoints/my-model-app"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Azure deployment timeout">
+    **Increase timeout:**
+    ```python
+    aci_config = AciWebservice.deploy_configuration(
+        cpu_cores=2,
+        memory_gb=4,
+        timeout_seconds=600  # Increase timeout
+    )
+    ```
+
+    **Check deployment logs:**
+    ```python
+    print(webservice.get_logs())
+    ```
+  </Accordion>
+
+  <Accordion title="GCP container image errors">
+    **Test container locally:**
+    ```bash
+    docker run -p 8080:8080 gcr.io/my-project/my-model:latest
+    curl http://localhost:8080/ping
+    ```
+
+    **Check Cloud Logging:**
+    ```bash
+    gcloud logging read "resource.type=aiplatform.googleapis.com/Endpoint"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Monitoring" icon="chart-line" href="/monitoring/overview">
+    Monitor deployed models in production
+  </Card>
+  <Card title="Model Registry" icon="database" href="/model-registry/overview">
+    Manage model versions and stages
+  </Card>
+  <Card title="CI/CD" icon="code-branch" href="/cicd/overview">
+    Automate deployment pipelines
+  </Card>
+  <Card title="Security" icon="shield" href="/security/overview">
+    Secure your cloud deployments
+  </Card>
+</CardGroup>

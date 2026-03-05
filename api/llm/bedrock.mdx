@@ -1,0 +1,273 @@
+---
+title: Amazon Bedrock
+description: MLflow integration for Amazon Bedrock models
+---
+
+The `mlflow.bedrock` module provides autologging and tracing capabilities for Amazon Bedrock models. This integration automatically captures traces for Bedrock API calls through boto3.
+
+## Installation
+
+```bash
+pip install mlflow boto3
+```
+
+## Autologging
+
+### mlflow.bedrock.autolog()
+
+Enables (or disables) and configures autologging from Amazon Bedrock to MLflow. Only synchronous calls are supported. Asynchronous APIs and streaming are not recorded.
+
+<ParamField path="log_traces" type="bool" default="True">
+  If `True`, traces are logged for Bedrock models. If `False`, no traces are collected during inference.
+</ParamField>
+
+<ParamField path="disable" type="bool" default="False">
+  If `True`, disables the Bedrock autologging. If `False`, enables the Bedrock autologging.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If `True`, suppress all event logs and warnings from MLflow during Bedrock autologging. If `False`, show all events and warnings.
+</ParamField>
+
+<Note>
+MLflow can only trace boto3 service clients that are created after calling `autolog()`. If you have already created a client, please recreate it by calling `boto3.client()`.
+</Note>
+
+**Example:**
+
+```python
+import mlflow
+import boto3
+
+# Enable autologging BEFORE creating the client
+mlflow.bedrock.autolog()
+
+# Create Bedrock client
+client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
+
+# This call will be automatically traced
+response = client.invoke_model(
+    modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+    body=json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hello, how are you?"}
+        ]
+    })
+)
+```
+
+## How It Works
+
+The Bedrock integration works by patching the boto3 `ClientCreator` factory class. When you call `autolog()`, MLflow intercepts the creation of new boto3 service clients and adds tracing capabilities to Bedrock-related operations.
+
+<Warning>
+You must call `mlflow.bedrock.autolog()` **before** creating your boto3 client. Existing clients will not be traced.
+</Warning>
+
+## Supported Models
+
+MLflow Bedrock integration supports all Amazon Bedrock foundation models, including:
+
+- **Anthropic Claude** (Claude 3, Claude 2, Claude Instant)
+- **Amazon Titan** (Text, Embeddings)
+- **AI21 Labs Jurassic**
+- **Cohere Command**
+- **Meta Llama 2**
+- **Stability AI Stable Diffusion**
+
+## Example: Claude 3 on Bedrock
+
+```python
+import json
+import mlflow
+import boto3
+
+# Enable autologging
+mlflow.bedrock.autolog()
+
+# Create Bedrock Runtime client
+client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
+
+# Prepare request body for Claude 3
+body = json.dumps({
+    "anthropic_version": "bedrock-2023-05-31",
+    "max_tokens": 1024,
+    "temperature": 0.7,
+    "messages": [
+        {
+            "role": "user",
+            "content": "Explain quantum computing in simple terms."
+        }
+    ]
+})
+
+with mlflow.start_run():
+    response = client.invoke_model(
+        modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+        body=body
+    )
+    
+    response_body = json.loads(response["body"].read())
+    print(response_body["content"][0]["text"])
+```
+
+## Example: Amazon Titan Embeddings
+
+```python
+import json
+import mlflow
+import boto3
+
+mlflow.bedrock.autolog()
+
+client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
+
+body = json.dumps({
+    "inputText": "This is a sample text for embedding."
+})
+
+with mlflow.start_run():
+    response = client.invoke_model(
+        modelId="amazon.titan-embed-text-v1",
+        body=body
+    )
+    
+    response_body = json.loads(response["body"].read())
+    embedding = response_body["embedding"]
+    print(f"Embedding dimension: {len(embedding)}")
+```
+
+## Example: Multiple Models
+
+```python
+import json
+import mlflow
+import boto3
+
+mlflow.bedrock.autolog()
+
+client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
+
+with mlflow.start_run():
+    # Call Claude
+    claude_response = client.invoke_model(
+        modelId="anthropic.claude-3-sonnet-20240229-v1:0",
+        body=json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 512,
+            "messages": [{"role": "user", "content": "Hello!"}]
+        })
+    )
+    
+    # Call Titan
+    titan_response = client.invoke_model(
+        modelId="amazon.titan-text-express-v1",
+        body=json.dumps({
+            "inputText": "Hello!",
+            "textGenerationConfig": {
+                "maxTokenCount": 512,
+                "temperature": 0.7
+            }
+        })
+    )
+    
+    # Both calls are traced in the same run
+```
+
+## Trace Information
+
+MLflow captures the following information in traces:
+
+### Inputs
+- Model ID (e.g., `anthropic.claude-3-sonnet-20240229-v1:0`)
+- Request body (messages, prompts, generation parameters)
+- Content type and accept headers
+
+### Outputs
+- Generated text or embeddings
+- Response metadata
+- Token usage (if available)
+
+### Metadata
+- Request timestamp
+- Response latency
+- AWS region
+- Model version
+
+## Configuration
+
+Bedrock uses AWS credentials configured through:
+
+- AWS credentials file (`~/.aws/credentials`)
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- IAM roles (when running on AWS services)
+
+For more information, see the [Boto3 credentials documentation](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html).
+
+## Limitations
+
+<Warning>
+The following features are currently not supported:
+- Asynchronous API calls
+- Streaming responses (`invoke_model_with_response_stream`)
+</Warning>
+
+## Client Recreation Requirement
+
+Because boto3 dynamically creates service client classes at runtime, MLflow patches the `ClientCreator` factory. This means:
+
+1. Call `mlflow.bedrock.autolog()` first
+2. Create your boto3 client after autologging is enabled
+3. All subsequent calls on that client will be traced
+
+**Incorrect usage:**
+```python
+import boto3
+import mlflow
+
+# Client created BEFORE autolog
+client = boto3.client("bedrock-runtime", region_name="us-east-1")
+
+mlflow.bedrock.autolog()  # This won't trace the existing client
+```
+
+**Correct usage:**
+```python
+import boto3
+import mlflow
+
+# Enable autolog FIRST
+mlflow.bedrock.autolog()
+
+# Then create the client
+client = boto3.client("bedrock-runtime", region_name="us-east-1")
+# This client will be traced
+```
+
+## Disabling Autologging
+
+To disable autologging:
+
+```python
+import mlflow
+
+# Disable autologging
+mlflow.bedrock.autolog(disable=True)
+
+# Re-enable autologging
+mlflow.bedrock.autolog(disable=False)
+```

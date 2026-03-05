@@ -1,0 +1,518 @@
+---
+title: 'Metrics Logging'
+description: 'Log, track, and visualize metrics across ML experiments with MLflow'
+---
+
+## Overview
+
+MLflow provides comprehensive capabilities for logging and tracking metrics throughout your ML workflow. Metrics help you evaluate model performance, monitor training progress, and compare experiments.
+
+## Logging Basic Metrics
+
+### Single Metric
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log a single metric
+    mlflow.log_metric("accuracy", 0.95)
+    mlflow.log_metric("loss", 0.23)
+```
+
+### Multiple Metrics
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    metrics = {
+        "accuracy": 0.95,
+        "precision": 0.93,
+        "recall": 0.94,
+        "f1_score": 0.935
+    }
+    mlflow.log_metrics(metrics)
+```
+
+## Time-Series Metrics
+
+### Logging Metrics Over Steps
+
+```python
+import mlflow
+import numpy as np
+
+with mlflow.start_run():
+    # Training loop
+    for epoch in range(100):
+        train_loss = train_one_epoch(model, train_loader)
+        val_loss = validate(model, val_loader)
+        
+        # Log metrics at each step
+        mlflow.log_metric("train_loss", train_loss, step=epoch)
+        mlflow.log_metric("val_loss", val_loss, step=epoch)
+        mlflow.log_metric("learning_rate", get_lr(optimizer), step=epoch)
+```
+
+### Batch Logging
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Collect metrics over time
+    train_losses = []
+    val_losses = []
+    
+    for epoch in range(100):
+        train_loss = train_one_epoch(model, train_loader)
+        val_loss = validate(model, val_loader)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+    
+    # Log all metrics at once
+    for epoch, (train_loss, val_loss) in enumerate(zip(train_losses, val_losses)):
+        mlflow.log_metrics({
+            "train_loss": train_loss,
+            "val_loss": val_loss
+        }, step=epoch)
+```
+
+## Classification Metrics
+
+### Binary Classification
+
+```python
+import mlflow
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    confusion_matrix
+)
+import numpy as np
+
+with mlflow.start_run():
+    # Get predictions
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    
+    # Calculate metrics
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall": recall_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred),
+        "roc_auc": roc_auc_score(y_test, y_pred_proba)
+    }
+    
+    # Log all metrics
+    mlflow.log_metrics(metrics)
+    
+    # Log confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    mlflow.log_dict({
+        "true_negatives": int(cm[0, 0]),
+        "false_positives": int(cm[0, 1]),
+        "false_negatives": int(cm[1, 0]),
+        "true_positives": int(cm[1, 1])
+    }, "confusion_matrix.json")
+```
+
+### Multi-class Classification
+
+```python
+import mlflow
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report
+)
+import json
+
+with mlflow.start_run():
+    y_pred = model.predict(X_test)
+    
+    # Calculate macro and weighted averages
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision_macro": precision_score(y_test, y_pred, average='macro'),
+        "precision_weighted": precision_score(y_test, y_pred, average='weighted'),
+        "recall_macro": recall_score(y_test, y_pred, average='macro'),
+        "recall_weighted": recall_score(y_test, y_pred, average='weighted'),
+        "f1_macro": f1_score(y_test, y_pred, average='macro'),
+        "f1_weighted": f1_score(y_test, y_pred, average='weighted')
+    }
+    
+    mlflow.log_metrics(metrics)
+    
+    # Log detailed classification report
+    report = classification_report(y_test, y_pred, output_dict=True)
+    mlflow.log_dict(report, "classification_report.json")
+```
+
+## Regression Metrics
+
+```python
+import mlflow
+import numpy as np
+from sklearn.metrics import (
+    mean_squared_error,
+    mean_absolute_error,
+    r2_score,
+    mean_absolute_percentage_error
+)
+
+with mlflow.start_run():
+    predictions = model.predict(X_test)
+    
+    # Calculate regression metrics
+    mse = mean_squared_error(y_test, predictions)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, predictions)
+    r2 = r2_score(y_test, predictions)
+    mape = mean_absolute_percentage_error(y_test, predictions)
+    
+    metrics = {
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "r2_score": r2,
+        "mape": mape
+    }
+    
+    mlflow.log_metrics(metrics)
+    
+    # Log residual statistics
+    residuals = y_test - predictions
+    residual_stats = {
+        "residual_mean": np.mean(residuals),
+        "residual_std": np.std(residuals),
+        "residual_min": np.min(residuals),
+        "residual_max": np.max(residuals)
+    }
+    
+    mlflow.log_metrics(residual_stats)
+```
+
+## Custom Metrics
+
+### Define Custom Metric Function
+
+```python
+import mlflow
+import numpy as np
+
+def calculate_custom_metric(y_true, y_pred):
+    """Custom business metric"""
+    # Example: weighted accuracy with cost for false positives
+    true_positives = np.sum((y_true == 1) & (y_pred == 1))
+    false_positives = np.sum((y_true == 0) & (y_pred == 1))
+    true_negatives = np.sum((y_true == 0) & (y_pred == 0))
+    false_negatives = np.sum((y_true == 1) & (y_pred == 0))
+    
+    # Apply custom weights
+    score = (true_positives * 1.0 + true_negatives * 1.0 - 
+             false_positives * 2.0 - false_negatives * 1.5)
+    
+    return score / len(y_true)
+
+with mlflow.start_run():
+    y_pred = model.predict(X_test)
+    
+    # Log custom metric
+    custom_score = calculate_custom_metric(y_test, y_pred)
+    mlflow.log_metric("custom_business_metric", custom_score)
+```
+
+## MLflow Evaluation Metrics
+
+### Built-in Evaluation Metrics
+
+```python
+import mlflow
+from mlflow.models import make_metric, MetricValue
+from sklearn.metrics import accuracy_score
+
+# Define custom evaluation metric
+def accuracy_metric(eval_df, _builtin_metrics):
+    return MetricValue(
+        scores=[accuracy_score(eval_df["target"], eval_df["prediction"])]
+    )
+
+accuracy = make_metric(
+    eval_fn=accuracy_metric,
+    greater_is_better=True,
+    name="accuracy"
+)
+
+# Use in model evaluation
+with mlflow.start_run():
+    model = train_model(X_train, y_train)
+    
+    # Log model
+    mlflow.sklearn.log_model(model, name="model")
+    
+    # Evaluate with custom metrics
+    results = mlflow.evaluate(
+        model="runs:/{}/model".format(mlflow.active_run().info.run_id),
+        data=eval_data,
+        targets="target",
+        model_type="classifier",
+        extra_metrics=[accuracy]
+    )
+```
+
+## Visualizing Metrics
+
+### Log Plots as Artifacts
+
+```python
+import mlflow
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, roc_curve, auc
+
+with mlflow.start_run():
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig('confusion_matrix.png')
+    mlflow.log_artifact('confusion_matrix.png')
+    plt.close()
+    
+    # ROC Curve
+    fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba)
+    roc_auc = auc(fpr, tpr)
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.2f})')
+    plt.plot([0, 1], [0, 1], 'k--', label='Random')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc="lower right")
+    plt.savefig('roc_curve.png')
+    mlflow.log_artifact('roc_curve.png')
+    plt.close()
+    
+    # Training History
+    plt.figure(figsize=(10, 6))
+    plt.plot(history['train_loss'], label='Training Loss')
+    plt.plot(history['val_loss'], label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training History')
+    plt.legend()
+    plt.savefig('training_history.png')
+    mlflow.log_artifact('training_history.png')
+    plt.close()
+```
+
+## Comparing Metrics Across Runs
+
+### Search and Compare Runs
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+import pandas as pd
+
+client = MlflowClient()
+
+# Search runs and get metrics
+runs = client.search_runs(
+    experiment_ids=["1"],
+    filter_string="",
+    order_by=["metrics.accuracy DESC"]
+)
+
+# Create comparison DataFrame
+comparison_data = []
+for run in runs:
+    comparison_data.append({
+        "run_id": run.info.run_id,
+        "run_name": run.data.tags.get("mlflow.runName", "Unknown"),
+        "accuracy": run.data.metrics.get("accuracy"),
+        "precision": run.data.metrics.get("precision"),
+        "recall": run.data.metrics.get("recall"),
+        "f1_score": run.data.metrics.get("f1_score")
+    })
+
+df = pd.DataFrame(comparison_data)
+print(df)
+
+# Find best run by metric
+best_run = df.loc[df['f1_score'].idxmax()]
+print(f"\nBest run by F1 score:")
+print(best_run)
+```
+
+## Complete Example: Comprehensive Metrics Logging
+
+```python
+import mlflow
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, confusion_matrix, classification_report,
+    roc_curve, precision_recall_curve
+)
+import seaborn as sns
+
+# Load data
+X, y = load_breast_cancer(return_X_y=True)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Set experiment
+mlflow.set_experiment("comprehensive-metrics-demo")
+
+with mlflow.start_run(run_name="rf_with_metrics"):
+    # Log parameters
+    params = {
+        "n_estimators": 100,
+        "max_depth": 10,
+        "min_samples_split": 2,
+        "random_state": 42
+    }
+    mlflow.log_params(params)
+    
+    # Train model
+    model = RandomForestClassifier(**params)
+    model.fit(X_train, y_train)
+    
+    # Get predictions
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    
+    # Calculate and log basic metrics
+    metrics = {
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall": recall_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred),
+        "roc_auc": roc_auc_score(y_test, y_pred_proba)
+    }
+    mlflow.log_metrics(metrics)
+    
+    # Log confusion matrix data
+    cm = confusion_matrix(y_test, y_pred)
+    cm_dict = {
+        "true_negatives": int(cm[0, 0]),
+        "false_positives": int(cm[0, 1]),
+        "false_negatives": int(cm[1, 0]),
+        "true_positives": int(cm[1, 1])
+    }
+    mlflow.log_dict(cm_dict, "confusion_matrix.json")
+    
+    # Log classification report
+    report = classification_report(y_test, y_pred, output_dict=True)
+    mlflow.log_dict(report, "classification_report.json")
+    
+    # Create and log visualizations
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    
+    # Confusion Matrix
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[0, 0])
+    axes[0, 0].set_title('Confusion Matrix')
+    axes[0, 0].set_ylabel('True Label')
+    axes[0, 0].set_xlabel('Predicted Label')
+    
+    # ROC Curve
+    fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+    axes[0, 1].plot(fpr, tpr, label=f'AUC = {metrics["roc_auc"]:.3f}')
+    axes[0, 1].plot([0, 1], [0, 1], 'k--')
+    axes[0, 1].set_xlabel('False Positive Rate')
+    axes[0, 1].set_ylabel('True Positive Rate')
+    axes[0, 1].set_title('ROC Curve')
+    axes[0, 1].legend()
+    
+    # Precision-Recall Curve
+    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
+    axes[1, 0].plot(recall, precision)
+    axes[1, 0].set_xlabel('Recall')
+    axes[1, 0].set_ylabel('Precision')
+    axes[1, 0].set_title('Precision-Recall Curve')
+    
+    # Feature Importance
+    feature_importance = model.feature_importances_
+    top_features = np.argsort(feature_importance)[-10:]
+    axes[1, 1].barh(range(10), feature_importance[top_features])
+    axes[1, 1].set_xlabel('Importance')
+    axes[1, 1].set_title('Top 10 Feature Importances')
+    axes[1, 1].set_yticks(range(10))
+    axes[1, 1].set_yticklabels([f'Feature {i}' for i in top_features])
+    
+    plt.tight_layout()
+    plt.savefig('model_evaluation.png', dpi=150)
+    mlflow.log_artifact('model_evaluation.png')
+    plt.close()
+    
+    # Log model
+    mlflow.sklearn.log_model(
+        model,
+        name="model",
+        registered_model_name="BreastCancerClassifier"
+    )
+    
+    print("Metrics logged successfully!")
+    print(f"Accuracy: {metrics['accuracy']:.3f}")
+    print(f"ROC AUC: {metrics['roc_auc']:.3f}")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Log All Metrics" icon="list-check">
+    Record all relevant metrics for comprehensive model evaluation
+  </Card>
+  
+  <Card title="Use Steps" icon="stairs">
+    Log metrics with step parameter to track progress over time
+  </Card>
+  
+  <Card title="Visualize" icon="chart-line">
+    Create and log plots for better understanding of model performance
+  </Card>
+  
+  <Card title="Compare Runs" icon="code-compare">
+    Use metric-based filtering to identify best performing models
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tracking" icon="chart-line" href="/ml/tracking">
+    Learn about experiment tracking
+  </Card>
+  
+  <Card title="Autologging" icon="wand-magic-sparkles" href="/ml/autologging">
+    Automatically log metrics with autologging
+  </Card>
+  
+  <Card title="Model Registry" icon="book" href="/ml/model-registry">
+    Register models based on metrics
+  </Card>
+</CardGroup>

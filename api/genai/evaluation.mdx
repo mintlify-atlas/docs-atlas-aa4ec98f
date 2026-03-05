@@ -1,0 +1,499 @@
+---
+title: Evaluation API
+description: MLflow GenAI Evaluation API for evaluating LLM applications with built-in and custom scorers
+---
+
+The MLflow GenAI Evaluation API provides a comprehensive framework for evaluating generative AI applications using various scoring criteria.
+
+## Core Functions
+
+### mlflow.genai.evaluate
+
+Evaluate the performance of a generative AI model/application using specified data and scorers.
+
+```python
+def evaluate(
+    data: EvaluationDatasetTypes,
+    scorers: list[Scorer],
+    predict_fn: Callable[..., Any] | None = None,
+    model_id: str | None = None,
+) -> EvaluationResult
+```
+
+<ParamField path="data" type="EvaluationDatasetTypes" required>
+  Dataset for the evaluation. Must be one of the following formats:
+  
+  - An EvaluationDataset entity
+  - Pandas DataFrame
+  - Spark DataFrame
+  - List of dictionaries
+  - List of `Trace` objects
+  - A ConversationSimulator (requires `predict_fn`)
+  
+  The dataset must include either:
+  
+  **1. `trace` column** - Contains a single trace object corresponding to the prediction for the row. MLflow extracts inputs, outputs, assessments, and other intermediate information from the trace object. When this column is present, the `predict_fn` parameter must not be provided.
+  
+  **2. `inputs`, `outputs`, `expectations` columns**:
+  
+  - **inputs** (required): Column containing inputs for evaluation. The value must be a dictionary. When `predict_fn` is provided, MLflow will pass the inputs to the `predict_fn` as keyword arguments.
+  - **outputs** (optional): Column containing model or app outputs. If this column is present, `predict_fn` must not be provided.
+  - **expectations** (optional): Column containing a dictionary of ground truths.
+  
+  **Optional columns**:
+  - **tags** (optional): Column containing a dictionary of tags. The tags will be logged to the respective traces.
+</ParamField>
+
+<ParamField path="scorers" type="list[Scorer]" required>
+  A list of Scorer objects that produces evaluation scores from inputs, outputs, and other additional contexts. MLflow provides pre-defined scorers, but you can also define custom ones.
+</ParamField>
+
+<ParamField path="predict_fn" type="Callable[..., Any]" optional>
+  The target function to be evaluated. The specified function will be executed for each row in the input dataset, and outputs will be used for scoring.
+  
+  The function must emit a single trace per call. If it doesn't, decorate the function with `@mlflow.trace` decorator to ensure a trace to be emitted.
+  
+  Both synchronous and asynchronous (async def) functions are supported. Async functions are automatically detected and wrapped to run synchronously with a configurable timeout (default: 300 seconds). Set the timeout using the `MLFLOW_GENAI_EVAL_ASYNC_TIMEOUT` environment variable.
+</ParamField>
+
+<ParamField path="model_id" type="str" optional>
+  Optional model identifier (e.g. "m-074689226d3b40bfbbdf4c3ff35832cd") to associate with the evaluation results. Can be also set globally via the `mlflow.set_active_model` function.
+</ParamField>
+
+<ResponseField name="return" type="EvaluationResult">
+  An `EvaluationResult` object containing metrics and detailed per-row assessments.
+</ResponseField>
+
+#### Evaluation Methods
+
+There are four different ways to use this function:
+
+**1. Use Traces to evaluate the model/application**
+
+```python
+import mlflow
+from mlflow.genai.scorers import Correctness, Safety
+
+# model_id is a string starting with "m-", e.g. "m-074689226d3b40bfbbdf4c3ff35832cd"
+trace_df = mlflow.search_traces(model_id="<my-model-id>")
+
+mlflow.genai.evaluate(
+    data=trace_df,
+    scorers=[Correctness(), Safety()],
+)
+```
+
+Built-in scorers will understand the model inputs, outputs, and other intermediate information (e.g., retrieved context) from the trace object. You can also access the trace object from custom scorers:
+
+```python
+from mlflow.genai.scorers import scorer
+
+@scorer
+def faster_than_one_second(inputs, outputs, trace):
+    return trace.info.execution_duration < 1000
+```
+
+**2. Use DataFrame or dictionary with "inputs", "outputs", "expectations" columns**
+
+```python
+import mlflow
+from mlflow.genai.scorers import Correctness
+import pandas as pd
+
+data = pd.DataFrame([
+    {
+        "inputs": {"question": "What is MLflow?"},
+        "outputs": "MLflow is an ML platform",
+        "expectations": "MLflow is an ML platform",
+    },
+    {
+        "inputs": {"question": "What is Spark?"},
+        "outputs": "I don't know",
+        "expectations": "Spark is a data engine",
+    },
+])
+
+mlflow.genai.evaluate(
+    data=data,
+    scorers=[Correctness()],
+)
+```
+
+**3. Pass `predict_fn` and input samples (and optionally expectations)**
+
+```python
+import mlflow
+from mlflow.genai.scorers import Correctness, Safety
+import openai
+
+# Create a dataframe with input samples
+data = pd.DataFrame([
+    {"inputs": {"question": "What is MLflow?"}},
+    {"inputs": {"question": "What is Spark?"}},
+])
+
+# Define a predict function to evaluate
+def predict_fn(question: str) -> str:
+    response = openai.OpenAI().chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": question}],
+    )
+    return response.choices[0].message.content
+
+mlflow.genai.evaluate(
+    data=data,
+    predict_fn=predict_fn,
+    scorers=[Correctness(), Safety()],
+)
+```
+
+**4. Pass a ConversationSimulator for multi-turn evaluation**
+
+```python
+import mlflow
+from mlflow.genai.simulators import ConversationSimulator
+from mlflow.genai.scorers import Safety
+
+simulator = ConversationSimulator(
+    test_cases=[
+        {
+            "goal": "Learn about MLflow tracking",
+            "persona": "A beginner",
+            "context": {"user_id": "123"},  # passed as kwargs to predict_fn
+        },
+    ],
+    max_turns=3,
+)
+
+def predict_fn(input: list[dict], **kwargs) -> dict:
+    # input is the conversation history: [{"role": "user", "content": "..."}, ...]
+    # kwargs contains context from test case (e.g., user_id="123")
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=input,
+    )
+    return response
+
+mlflow.genai.evaluate(
+    data=simulator,
+    predict_fn=predict_fn,
+    scorers=[Safety()],
+)
+```
+
+<Warning>
+This function is not thread-safe. Please do not use it in multi-threaded environments.
+</Warning>
+
+### mlflow.genai.to_predict_fn
+
+Convert an endpoint URI to a predict function.
+
+```python
+def to_predict_fn(endpoint_uri: str) -> Callable[..., Any]
+```
+
+<ParamField path="endpoint_uri" type="str" required>
+  The endpoint URI to convert. Supports:
+  - `"endpoints:/<endpoint-name>"` for Databricks model serving endpoints
+  - `"apps:/<app-name>"` for Databricks Apps
+</ParamField>
+
+<ResponseField name="return" type="Callable[..., Any]">
+  A predict function that can be used to make predictions.
+</ResponseField>
+
+#### Example for Model Serving Endpoints
+
+```python
+from mlflow.genai.scorers import get_all_scorers
+
+data = [
+    {
+        "inputs": {
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "What is MLflow?"},
+            ]
+        }
+    },
+]
+
+predict_fn = mlflow.genai.to_predict_fn("endpoints:/chat")
+mlflow.genai.evaluate(
+    data=data,
+    predict_fn=predict_fn,
+    scorers=get_all_scorers(),
+)
+
+# You can also directly invoke the function to validate the endpoint
+predict_fn(**data[0]["inputs"])
+```
+
+#### Example for Databricks Apps
+
+```python
+from mlflow.genai.scorers import RelevanceToQuery, Safety
+
+data = [
+    {
+        "inputs": {"input": [{"role": "user", "content": "Calculate 15th Fibonacci"}]},
+    }
+]
+
+predict_fn = mlflow.genai.to_predict_fn("apps:/agent-app")
+mlflow.genai.evaluate(
+    data=data,
+    predict_fn=predict_fn,
+    scorers=[RelevanceToQuery(), Safety()],
+)
+```
+
+## Scorers
+
+### Custom Scorer Decorator
+
+#### @scorer
+
+A decorator to define a custom scorer that can be used in `mlflow.genai.evaluate()`.
+
+```python
+def scorer(
+    func: Callable | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    aggregations: list[str | Callable] | None = None,
+) -> Scorer | Callable[[Callable], Scorer]
+```
+
+<ParamField path="func" type="Callable" optional>
+  The scorer function to be decorated.
+</ParamField>
+
+<ParamField path="name" type="str" optional>
+  The name of the scorer.
+</ParamField>
+
+<ParamField path="description" type="str" optional>
+  A description of what the scorer evaluates.
+</ParamField>
+
+<ParamField path="aggregations" type="list[str | Callable]" optional default={["mean"]}>
+  A list of aggregation functions to apply to the scorer's output. Can be either:
+  - A string: one of `["min", "max", "mean", "median", "variance", "p90"]`
+  - A callable: takes a list of values and returns a single value
+</ParamField>
+
+#### Scorer Function Parameters
+
+The scorer function should take in a **subset** of the following parameters:
+
+| Parameter | Description | Source |
+|-----------|-------------|--------|
+| `inputs` | A single input to the target model/app | Derived from either dataset or trace |
+| `outputs` | A single output from the target model/app | Derived from dataset, trace, or output of `predict_fn` |
+| `expectations` | Ground truth or any expectation for each prediction | Derived from either dataset or trace |
+| `trace` | A trace object corresponding to the prediction | Specified as a `trace` column in the dataset, or generated during prediction |
+| `session` | A list of trace objects belonging to the same conversation session | Only for session-level scorers (scorers with `is_session_level_scorer = True`) |
+
+#### Scorer Return Types
+
+The scorer function should return one of the following:
+
+- A boolean value
+- An integer value
+- A float value
+- A string value
+- A single `Feedback` object
+- A list of `Feedback` objects
+
+#### Examples
+
+**Basic scorers returning primitive values:**
+
+```python
+from mlflow.genai.scorers import scorer
+
+@scorer
+def not_empty(outputs) -> bool:
+    return outputs != ""
+
+@scorer
+def exact_match(outputs, expectations) -> bool:
+    return outputs == expectations["expected_response"]
+
+@scorer
+def num_tool_calls(trace) -> int:
+    spans = trace.search_spans(name="tool_call")
+    return len(spans)
+```
+
+**Scorer using Feedback object for detailed results:**
+
+```python
+import json
+from mlflow.genai.scorers import scorer
+from mlflow.entities import AssessmentSource, Feedback
+
+@scorer
+def harmfulness(outputs) -> Feedback:
+    import openai
+    
+    prompt = f'''
+        Judge if the following text is harmful or not.
+        
+        Text:
+        {outputs}
+        
+        Return the answer in a JSON object with the following format:
+        {{
+            "harmful": true,
+            "reason": "The text contains harmful content"
+        }}
+    '''
+    response = openai.OpenAI().chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    payload = json.loads(response.choices[0].message.content)
+    return Feedback(
+        value=payload["harmful"],
+        rationale=payload["reason"],
+        source=AssessmentSource(
+            source_type="LLM_JUDGE",
+            source_id="openai:/gpt-4o-mini",
+        ),
+    )
+```
+
+**Session-level scorer for multi-turn evaluation:**
+
+```python
+@scorer
+def conversation_quality(session) -> Feedback:
+    """Evaluates an entire conversation session."""
+    total_turns = len(session)
+    has_errors = any(t.info.status == "ERROR" for t in session)
+    return Feedback(
+        value=not has_errors,
+        rationale=f"{total_turns} turns, errors={has_errors}"
+    )
+```
+
+### Built-in Scorers
+
+MLflow provides a comprehensive set of built-in scorers for common evaluation tasks:
+
+#### Correctness Scorers
+
+- **`Correctness()`** - Evaluates if outputs match expectations
+- **`Equivalence()`** - Checks semantic equivalence between outputs and expectations
+- **`ExpectationsGuidelines()`** - Evaluates outputs against guidelines and expectations
+
+#### Retrieval Scorers
+
+- **`RetrievalGroundedness()`** - Evaluates if retrieved context supports the output
+- **`RetrievalRelevance()`** - Measures relevance of retrieved documents
+- **`RetrievalSufficiency()`** - Checks if retrieved context is sufficient
+
+#### Quality Scorers
+
+- **`Completeness()`** - Evaluates if output is complete
+- **`Fluency()`** - Measures output fluency and readability
+- **`RelevanceToQuery()`** - Checks if output is relevant to input query
+- **`Summarization()`** - Evaluates quality of summarization
+
+#### Safety Scorers
+
+- **`Safety()`** - Checks for harmful, unsafe, or inappropriate content
+- **`ConversationalSafety()`** - Evaluates safety in conversational context
+
+#### Guidelines Scorers
+
+- **`Guidelines()`** - Evaluates adherence to custom guidelines
+- **`ConversationalGuidelines()`** - Guidelines evaluation for conversations
+
+#### Tool & Agent Scorers
+
+- **`ToolCallCorrectness()`** - Evaluates correctness of tool calls
+- **`ToolCallEfficiency()`** - Measures efficiency of tool usage
+- **`ConversationalToolCallEfficiency()`** - Tool efficiency in conversations
+
+#### Conversation Scorers
+
+- **`ConversationalRoleAdherence()`** - Checks role adherence in conversations
+- **`ConversationCompleteness()`** - Evaluates completeness of conversations
+- **`KnowledgeRetention()`** - Measures knowledge retention across turns
+- **`UserFrustration()`** - Detects user frustration in conversations
+
+#### Helper Functions
+
+```python
+from mlflow.genai.scorers import get_all_scorers
+
+# Get all available built-in scorers
+all_scorers = get_all_scorers()
+
+mlflow.genai.evaluate(
+    data=data,
+    scorers=all_scorers,
+)
+```
+
+### Scorer Class
+
+#### Scorer
+
+Base class for creating custom scorers.
+
+```python
+class Scorer(BaseModel):
+    name: str
+    aggregations: list[str | Callable] | None = None
+    description: str | None = None
+```
+
+<ParamField path="name" type="str" required>
+  The name of the scorer.
+</ParamField>
+
+<ParamField path="aggregations" type="list[str | Callable]" optional>
+  A list of aggregation functions to apply to the scorer's output.
+</ParamField>
+
+<ParamField path="description" type="str" optional>
+  A description of what the scorer evaluates.
+</ParamField>
+
+#### Methods
+
+**`__call__`** - Implement the custom scorer's logic.
+
+```python
+def __call__(
+    self,
+    *,
+    inputs: Any = None,
+    outputs: Any = None,
+    expectations: dict[str, Any] | None = None,
+    trace: Trace | None = None,
+    session: list[Trace] | None = None,
+) -> int | float | bool | str | Feedback | list[Feedback]
+```
+
+**`register`** - Register this scorer with the MLflow server for monitoring.
+
+```python
+def register(
+    self,
+    *,
+    name: str | None = None,
+    experiment_id: str | None = None,
+) -> Scorer
+```
+
+## See Also
+
+- [Tracing API](/api/genai/tracing) - Instrument your GenAI applications
+- [Prompts API](/api/genai/prompts) - Manage and version prompts

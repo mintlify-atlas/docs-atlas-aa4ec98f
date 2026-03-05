@@ -1,0 +1,632 @@
+---
+title: Migrating from MLflow 2.x to 3.x
+description: A comprehensive guide for upgrading your MLflow deployment and applications from version 2.x to 3.x
+---
+
+# Migrating from MLflow 2.x to 3.x
+
+This guide helps you migrate your MLflow setup and applications from version 2.x to 3.x. MLflow 3 introduces several breaking changes and new features that enhance the platform's capabilities, particularly for GenAI and LLM workflows.
+
+## Overview
+
+MLflow 3.x brings major improvements in:
+- Enhanced GenAI and LLM support
+- Improved tracing and observability
+- Better prompt management
+- Updated model registry defaults
+- Performance optimizations
+- New default backend storage
+
+<Warning>
+**Important**: Before upgrading to MLflow 3.x, back up your tracking server database and artifact store. Test the migration in a non-production environment first.
+</Warning>
+
+## Breaking Changes
+
+### Default Backend Storage
+
+**MLflow 2.x**: Used file-based storage (`mlruns` directory) by default
+
+**MLflow 3.x**: Uses SQLite as the default backend for new installations
+
+```python
+# MLflow 2.x - File-based storage
+mlflow server --backend-store-uri ./mlruns
+
+# MLflow 3.x - SQLite default (recommended)
+mlflow server --backend-store-uri sqlite:///mlflow.db
+```
+
+<Note>
+If you have existing `mlruns` data, MLflow 3.x will continue using file-based storage automatically. For new installations, SQLite is used for better performance and reliability.
+</Note>
+
+**Migration Steps**:
+
+1. **Option A**: Continue using file-based storage (no migration needed)
+   ```bash
+   mlflow server --backend-store-uri ./mlruns
+   ```
+
+2. **Option B**: Migrate to SQLite for better performance
+   ```bash
+   # Use the migration command
+   mlflow db upgrade sqlite:///mlflow.db
+   ```
+
+### Prompt Registry API Namespace
+
+**MLflow 2.x**: Prompt APIs were at the top level
+
+```python
+# MLflow 2.x
+import mlflow
+
+prompt = mlflow.get_prompt("my-prompt")
+mlflow.register_prompt(prompt)
+mlflow.search_prompts()
+```
+
+**MLflow 3.x**: Prompt APIs moved to `mlflow.genai.prompts` namespace
+
+```python
+# MLflow 3.x
+import mlflow
+
+prompt = mlflow.genai.prompts.get_prompt("my-prompt")
+mlflow.genai.prompts.register_prompt(prompt)
+mlflow.genai.prompts.search_prompts()
+```
+
+**Migration Steps**:
+
+1. Update all prompt-related imports:
+   ```python
+   # Before
+   from mlflow import get_prompt, register_prompt
+   
+   # After
+   from mlflow.genai.prompts import get_prompt, register_prompt
+   ```
+
+2. Update function calls throughout your codebase:
+   ```bash
+   # Use find and replace
+   find . -name "*.py" -exec sed -i 's/mlflow\.get_prompt/mlflow.genai.prompts.get_prompt/g' {} +
+   find . -name "*.py" -exec sed -i 's/mlflow\.register_prompt/mlflow.genai.prompts.register_prompt/g' {} +
+   ```
+
+### Model Registry URI Defaults
+
+**MLflow 2.x**: When using Databricks as tracking URI, model registry defaulted to workspace registry
+
+**MLflow 3.x**: Defaults to Unity Catalog (`databricks-uc`) when tracking URI is `databricks`
+
+```python
+# MLflow 2.x behavior
+mlflow.set_tracking_uri("databricks")
+# Registry URI implicitly: workspace registry
+
+# MLflow 3.x behavior
+mlflow.set_tracking_uri("databricks")
+# Registry URI implicitly: databricks-uc (Unity Catalog)
+```
+
+**Migration Steps**:
+
+1. **If you want to continue using workspace registry**:
+   ```python
+   import mlflow
+   
+   mlflow.set_tracking_uri("databricks")
+   mlflow.set_registry_uri("databricks")  # Explicitly set workspace registry
+   ```
+
+2. **If migrating to Unity Catalog** (recommended):
+   ```python
+   import mlflow
+   
+   mlflow.set_tracking_uri("databricks")
+   # Unity Catalog is now the default - no action needed
+   ```
+
+### Trace Search DataFrame Schema
+
+**MLflow 2.x**: `search_traces()` returned DataFrame with V2 format
+
+**MLflow 3.x**: Returns DataFrame with V3 format for better compatibility
+
+```python
+# MLflow 3.x - Updated schema
+traces_df = mlflow.search_traces()
+
+# New V3 format includes:
+# - trace_id (string)
+# - request_id (string)
+# - timestamp_ms (long)
+# - status (string)
+# - execution_time_ms (long)
+# - tags (map)
+# - request (struct)
+# - response (struct)
+```
+
+**Migration Steps**:
+
+1. Update code that depends on the DataFrame schema:
+   ```python
+   # Before (V2)
+   trace_ids = traces_df['trace_info.trace_id'].tolist()
+   
+   # After (V3)
+   trace_ids = traces_df['trace_id'].tolist()
+   ```
+
+2. Review any downstream processing that uses the trace DataFrame
+
+### SHAP Explainer Logging
+
+**MLflow 2.x**: `mlflow.evaluate()` automatically logged SHAP explainer objects
+
+**MLflow 3.x**: SHAP explainer is no longer automatically logged (opt-in)
+
+```python
+# MLflow 2.x - Automatic SHAP logging
+results = mlflow.evaluate(
+    model_uri,
+    data=eval_data,
+    targets="target"
+)
+# SHAP explainer was automatically saved
+
+# MLflow 3.x - Manual SHAP logging if needed
+results = mlflow.evaluate(
+    model_uri,
+    data=eval_data,
+    targets="target"
+)
+
+# Explicitly log SHAP if you need it
+if need_shap:
+    import shap
+    explainer = shap.Explainer(model)
+    mlflow.log_dict(explainer.expected_value, "shap_explainer.json")
+```
+
+**Migration Steps**:
+
+1. Identify code relying on automatic SHAP logging
+2. Add explicit SHAP logging where needed
+3. Update any downstream processes expecting SHAP artifacts
+
+### Removed Deprecated Flavors
+
+**MLflow 3.x** removes several deprecated model flavors:
+
+- `mlflow.diviner` (removed in 3.7.0)
+- `mlflow.promptflow` (removed in 3.7.0)
+- `mlflow.mleap` (deprecated, removal pending)
+- `mlflow.gluon` (deprecated, removal pending)
+
+**Migration Steps**:
+
+1. **For Diviner users**:
+   ```python
+   # Use Prophet instead
+   import mlflow.prophet
+   
+   mlflow.prophet.log_model(prophet_model, "model")
+   ```
+
+2. **For PromptFlow users**:
+   ```python
+   # Migrate to MLflow's native prompt management
+   from mlflow.genai.prompts import register_prompt
+   
+   register_prompt(
+       prompt="Your prompt template",
+       name="my-prompt",
+       version=1
+   )
+   ```
+
+3. **For MLeap users**:
+   ```python
+   # Use native Spark MLlib flavor
+   import mlflow.spark
+   
+   mlflow.spark.log_model(spark_model, "model")
+   ```
+
+## New Features to Adopt
+
+### Enhanced Tracing and Observability
+
+MLflow 3.x significantly improves tracing capabilities:
+
+```python
+import mlflow
+from openai import OpenAI
+
+# Enable auto-tracing for supported libraries
+mlflow.openai.autolog()
+mlflow.langchain.autolog()
+mlflow.llamaindex.autolog()
+
+# Manual tracing with decorators
+@mlflow.trace
+def my_llm_function(query: str):
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": query}]
+    )
+    return response.choices[0].message.content
+
+# Distributed tracing (new in 3.9.0)
+from mlflow.tracing.distributed import set_trace_parent
+
+with set_trace_parent(parent_trace_id):
+    # Child traces are automatically linked
+    result = my_llm_function("Hello")
+```
+
+### Prompt Management and Optimization
+
+```python
+from mlflow.genai.prompts import register_prompt, get_prompt
+from mlflow.genai import optimize_prompt
+
+# Register a prompt template
+register_prompt(
+    prompt="Answer the question: {question}\nContext: {context}",
+    name="qa-prompt",
+    tags={"task": "question-answering", "version": "v1"}
+)
+
+# Load and use prompts
+prompt_template = get_prompt("qa-prompt")
+formatted = prompt_template.format(
+    question="What is MLflow?",
+    context="MLflow is an open-source platform..."
+)
+
+# Optimize prompts using GEPA algorithm (new in 3.5.0)
+optimized_prompt = optimize_prompt(
+    prompt=prompt_template,
+    eval_data=evaluation_dataset,
+    algorithm="gepa"
+)
+```
+
+### Multi-turn Evaluation
+
+```python
+import mlflow.genai
+
+# Evaluate conversational agents (new in 3.8.0)
+results = mlflow.genai.evaluate(
+    model=my_agent,
+    data=conversation_dataset,  # Multi-turn conversations
+    evaluators=[
+        "conversational_safety",
+        "tool_call_efficiency",
+        "role_adherence"
+    ]
+)
+
+# Session-level scoring
+from mlflow.genai.scorers import ConversationalSafetyScorer
+
+scorer = ConversationalSafetyScorer()
+session_scores = scorer.score_session(conversation_trace)
+```
+
+### AI Gateway Integration
+
+MLflow 3.9.0 integrates AI Gateway directly into the tracking server:
+
+```python
+# Configure AI Gateway endpoints
+import mlflow.gateway
+
+# Gateway is now part of tracking server - no separate process needed
+mlflow.gateway.create_endpoint(
+    name="gpt4-endpoint",
+    provider="openai",
+    config={
+        "model": "gpt-4",
+        "api_key": "${OPENAI_API_KEY}"
+    }
+)
+
+# Use gateway with fallback and traffic splitting
+mlflow.gateway.create_endpoint(
+    name="resilient-llm",
+    routing_strategy="fallback",
+    endpoints=[
+        {"name": "gpt4-endpoint", "weight": 0.8},
+        {"name": "claude-endpoint", "weight": 0.2}
+    ]
+)
+```
+
+### Organization Support (3.10.0)
+
+```python
+# Multi-workspace organization support
+from mlflow.client import MlflowClient
+
+client = MlflowClient()
+
+# Create and manage workspaces
+client.create_workspace(name="team-a")
+client.create_workspace(name="team-b")
+
+# Switch between workspaces
+mlflow.set_workspace("team-a")
+experiment = mlflow.create_experiment("team-a-experiments")
+```
+
+## Database Migration
+
+<Warning>
+**Critical**: Always backup your database before running migrations.
+</Warning>
+
+### Upgrading the Tracking Database
+
+```bash
+# For SQLite
+mlflow db upgrade sqlite:///mlflow.db
+
+# For PostgreSQL
+mlflow db upgrade postgresql://user:password@localhost/mlflow
+
+# For MySQL
+mlflow db upgrade mysql://user:password@localhost/mlflow
+
+# For Microsoft SQL Server
+mlflow db upgrade mssql+pyodbc://user:password@localhost/mlflow
+```
+
+### Migrating File Store to Database Backend
+
+MLflow 3.10.0 introduces a migration command:
+
+```bash
+# Migrate from file store to database backend
+mlflow migrate-filestore \
+    --source ./mlruns \
+    --destination postgresql://user:password@localhost/mlflow
+
+# With progress tracking
+mlflow migrate-filestore \
+    --source ./mlruns \
+    --destination sqlite:///mlflow.db \
+    --verbose
+```
+
+## Testing Your Migration
+
+### Pre-Migration Checklist
+
+- [ ] Backup tracking server database
+- [ ] Backup artifact store
+- [ ] Document current MLflow version
+- [ ] List all custom integrations and plugins
+- [ ] Identify deprecated API usage in your codebase
+- [ ] Test migration in non-production environment
+
+### Post-Migration Validation
+
+```python
+import mlflow
+from mlflow.client import MlflowClient
+
+client = MlflowClient()
+
+# Verify experiments are accessible
+experiments = client.search_experiments()
+print(f"Found {len(experiments)} experiments")
+
+# Verify runs are accessible
+for exp in experiments[:5]:  # Check first 5 experiments
+    runs = client.search_runs(exp.experiment_id, max_results=1)
+    if runs:
+        run = runs[0]
+        print(f"Experiment: {exp.name}, Latest run: {run.info.run_id}")
+        
+# Verify model registry
+models = client.search_registered_models(max_results=5)
+print(f"Found {len(models)} registered models")
+
+# Verify traces (if applicable)
+try:
+    traces = mlflow.search_traces(max_results=5)
+    print(f"Found {len(traces)} traces")
+except Exception as e:
+    print(f"Trace search not available or failed: {e}")
+
+# Verify prompts (if applicable)
+try:
+    from mlflow.genai.prompts import search_prompts
+    prompts = search_prompts(max_results=5)
+    print(f"Found {len(prompts)} prompts")
+except Exception as e:
+    print(f"Prompt search not available or failed: {e}")
+```
+
+### Running Tests
+
+```bash
+# Test model loading
+python -c "
+import mlflow
+model = mlflow.pyfunc.load_model('models:/my-model/1')
+print('Model loaded successfully')
+"
+
+# Test tracking
+python -c "
+import mlflow
+with mlflow.start_run():
+    mlflow.log_param('test', 'migration')
+    mlflow.log_metric('score', 0.95)
+print('Tracking works')
+"
+
+# Test tracing
+python -c "
+import mlflow
+mlflow.openai.autolog()
+print('Tracing initialized')
+"
+```
+
+## Performance Optimizations
+
+MLflow 3.x includes several performance improvements:
+
+### Faster Package Management with `uv`
+
+```python
+# Enable uv for faster dependency resolution
+import mlflow
+
+mlflow.models.predict(
+    model_uri="models:/my-model/1",
+    data=test_data,
+    env_manager="uv"  # Use uv instead of conda/virtualenv
+)
+```
+
+### FastAPI + Uvicorn Server
+
+MLflow 3.3.0 switches to FastAPI for better performance:
+
+```bash
+# New default server (FastAPI + Uvicorn)
+mlflow server \
+    --host 0.0.0.0 \
+    --port 5000 \
+    --backend-store-uri postgresql://localhost/mlflow
+
+# For backwards compatibility with Flask
+mlflow server --app-name flask-app
+```
+
+## Common Issues and Solutions
+
+### Issue: Import errors after upgrade
+
+```python
+# Error: cannot import name 'get_prompt' from 'mlflow'
+from mlflow import get_prompt  # ❌ Fails in MLflow 3.x
+
+# Solution: Update import path
+from mlflow.genai.prompts import get_prompt  # ✅ Correct for MLflow 3.x
+```
+
+### Issue: Database migration failures
+
+```bash
+# If migration fails, check current version
+mlflow db current sqlite:///mlflow.db
+
+# Manually upgrade to specific version
+mlflow db upgrade sqlite:///mlflow.db --revision <revision_id>
+
+# Rollback if needed (not recommended in production)
+mlflow db downgrade sqlite:///mlflow.db --revision <previous_revision>
+```
+
+### Issue: Unity Catalog access errors
+
+```python
+# If you get Unity Catalog errors after upgrade
+import mlflow
+
+# Explicitly set workspace registry if not ready for UC
+mlflow.set_tracking_uri("databricks")
+mlflow.set_registry_uri("databricks")  # Use workspace registry
+
+# Or migrate to Unity Catalog
+mlflow.set_registry_uri("databricks-uc")  # Use Unity Catalog
+```
+
+### Issue: Trace format incompatibilities
+
+```python
+# If experiencing trace format issues
+import mlflow
+
+# Clear trace cache
+mlflow.tracing.clear_cache()
+
+# Ensure using V3 format
+traces = mlflow.search_traces()
+print(traces.columns)  # Should show V3 schema
+```
+
+## Rollback Plan
+
+<Warning>
+Have a rollback plan ready before migrating production systems.
+</Warning>
+
+### Rollback Steps
+
+1. **Stop MLflow server**:
+   ```bash
+   pkill -f "mlflow server"
+   ```
+
+2. **Restore database backup**:
+   ```bash
+   # For SQLite
+   cp mlflow.db.backup mlflow.db
+   
+   # For PostgreSQL
+   psql -U user -d mlflow < mlflow_backup.sql
+   
+   # For MySQL
+   mysql -u user -p mlflow < mlflow_backup.sql
+   ```
+
+3. **Reinstall MLflow 2.x**:
+   ```bash
+   pip install mlflow==2.22.1  # Or your previous version
+   ```
+
+4. **Restart server**:
+   ```bash
+   mlflow server --backend-store-uri sqlite:///mlflow.db
+   ```
+
+## Getting Help
+
+If you encounter issues during migration:
+
+- **Documentation**: [https://mlflow.org/docs/latest](https://mlflow.org/docs/latest)
+- **GitHub Issues**: [https://github.com/mlflow/mlflow/issues](https://github.com/mlflow/mlflow/issues)
+- **Community Slack**: [https://mlflow.org/slack](https://mlflow.org/slack)
+- **Stack Overflow**: Tag questions with `mlflow`
+
+## Next Steps
+
+After successful migration:
+
+1. Explore new MLflow 3.x features:
+   - Multi-turn conversation evaluation
+   - AI Gateway integration
+   - Enhanced prompt optimization
+   - Organization/workspace support
+
+2. Update team documentation and training materials
+
+3. Monitor performance and collect feedback
+
+4. Plan for adopting Unity Catalog (if using Databricks)
+
+5. Optimize your deployment with new performance features (FastAPI, uv, etc.)

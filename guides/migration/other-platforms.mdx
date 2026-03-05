@@ -1,0 +1,614 @@
+---
+title: Migrating from Other ML Platforms to MLflow
+description: Comprehensive guide for migrating from TensorBoard, Weights & Biases, Neptune, Comet, and other ML platforms to MLflow
+---
+
+# Migrating from Other ML Platforms to MLflow
+
+This guide helps you migrate from other machine learning platforms to MLflow. MLflow is an open-source, vendor-neutral platform that gives you full control over your ML infrastructure while providing enterprise-grade features.
+
+## Why Migrate to MLflow?
+
+- **Open Source & Vendor Neutral**: No lock-in, full control over your data and infrastructure
+- **Unified Platform**: Single platform for experiment tracking, model registry, deployment, and GenAI/LLM workflows
+- **Cloud Agnostic**: Run on any cloud provider or on-premises
+- **Active Community**: Large open-source community with 18k+ GitHub stars
+- **Enterprise Ready**: Used by thousands of organizations, with managed offerings from major cloud providers
+- **Cost Effective**: Self-hosted option eliminates recurring SaaS fees
+- **Comprehensive**: Covers the entire ML lifecycle from experimentation to production
+
+## Migration Comparison Matrix
+
+| Feature | MLflow | Weights & Biases | Neptune | Comet | TensorBoard |
+|---------|--------|------------------|---------|-------|-------------|
+| **Deployment** | Self-hosted or managed | Cloud SaaS | Cloud SaaS | Cloud SaaS | Self-hosted only |
+| **Experiment Tracking** | ✅ Full support | ✅ Full support | ✅ Full support | ✅ Full support | ✅ Basic support |
+| **Model Registry** | ✅ Full support | ✅ Full support | ✅ Full support | ✅ Full support | ❌ Not available |
+| **Model Deployment** | ✅ Full support | ⚠️ Limited | ⚠️ Limited | ⚠️ Limited | ❌ Not available |
+| **LLM/GenAI Tracing** | ✅ Full support | ✅ Full support | ✅ Full support | ✅ Full support | ❌ Not available |
+| **Prompt Management** | ✅ Full support | ⚠️ Limited | ⚠️ Limited | ⚠️ Limited | ❌ Not available |
+| **Artifact Storage** | ✅ S3/Azure/GCS/HDFS | ✅ Cloud storage | ✅ Cloud storage | ✅ Cloud storage | ✅ Local/NFS |
+| **Cost** | Free (self-hosted) | Paid plans | Paid plans | Paid plans | Free |
+| **API Language Support** | Python, R, Java, TypeScript | Python, TypeScript | Python | Python | Python |
+| **UI Customization** | ✅ Full control | ❌ Limited | ❌ Limited | ❌ Limited | ⚠️ Basic |
+
+## Migrating from TensorBoard
+
+TensorBoard is primarily used for visualizing TensorFlow training metrics. MLflow provides all TensorBoard functionality plus comprehensive experiment tracking, model management, and deployment.
+
+### Automatic TensorBoard Integration
+
+MLflow can automatically log TensorBoard data:
+
+```python
+import mlflow
+import tensorflow as tf
+
+# MLflow automatically captures TensorBoard logs
+mlflow.tensorflow.autolog()
+
+# Your existing TensorFlow code works unchanged
+model = tf.keras.models.Sequential([...])
+model.compile(optimizer='adam', loss='mse')
+
+# TensorBoard callback still works - MLflow captures it
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir='./logs')
+
+model.fit(
+    x_train, y_train,
+    epochs=10,
+    callbacks=[tensorboard_callback]
+)
+
+# Model is automatically logged to MLflow
+mlflow.tensorflow.log_model(model, "model")
+```
+
+### Manual Migration
+
+If you have existing TensorBoard logs:
+
+```python
+import mlflow
+from tensorboard.backend.event_processing import event_accumulator
+
+def migrate_tensorboard_logs(log_dir, experiment_name):
+    """Migrate existing TensorBoard logs to MLflow."""
+    mlflow.set_experiment(experiment_name)
+    
+    ea = event_accumulator.EventAccumulator(log_dir)
+    ea.Reload()
+    
+    with mlflow.start_run():
+        # Migrate scalars (metrics)
+        for tag in ea.Tags()['scalars']:
+            events = ea.Scalars(tag)
+            for event in events:
+                mlflow.log_metric(
+                    key=tag,
+                    value=event.value,
+                    step=event.step
+                )
+        
+        # Migrate hyperparameters if available
+        for tag in ea.Tags().get('tensors', []):
+            if 'hparams' in tag:
+                # Extract and log hyperparameters
+                pass
+        
+        # Log original TensorBoard files as artifacts
+        mlflow.log_artifacts(log_dir, artifact_path="tensorboard_logs")
+
+# Usage
+migrate_tensorboard_logs('./logs/run1', 'migrated-experiments')
+```
+
+### Feature Mapping
+
+| TensorBoard Feature | MLflow Equivalent | Notes |
+|---------------------|-------------------|---------|
+| Scalar logging | `mlflow.log_metric()` | Same concept, enhanced with tags |
+| Histogram logging | `mlflow.log_artifact()` | Log as JSON or numpy arrays |
+| Image logging | `mlflow.log_image()` | Direct image logging support |
+| Text logging | `mlflow.log_text()` or `mlflow.log_param()` | For short or long text |
+| Graph visualization | `mlflow.log_artifact()` | Log model graphs as artifacts |
+| Embeddings | `mlflow.log_artifact()` | Save embeddings and use MLflow UI |
+| HParams | `mlflow.log_params()` | More flexible parameter tracking |
+
+### Code Migration Example
+
+```python
+# Before (TensorBoard)
+import tensorflow as tf
+from tensorflow.keras.callbacks import TensorBoard
+
+tensorboard_callback = TensorBoard(
+    log_dir='./logs',
+    histogram_freq=1,
+    write_graph=True
+)
+
+model.fit(
+    x_train, y_train,
+    epochs=10,
+    callbacks=[tensorboard_callback]
+)
+
+# After (MLflow)
+import mlflow
+import tensorflow as tf
+
+mlflow.set_experiment("my-experiment")
+mlflow.tensorflow.autolog()  # Automatic logging
+
+with mlflow.start_run():
+    # Log hyperparameters
+    mlflow.log_params({
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "epochs": 10
+    })
+    
+    # Your training code remains the same
+    model.fit(x_train, y_train, epochs=10)
+    
+    # Model is automatically logged
+    # Optionally log additional artifacts
+    mlflow.log_artifact("model_architecture.png")
+```
+
+## Migrating from Weights & Biases (W&B)
+
+Weights & Biases is a popular commercial ML platform. MLflow provides similar functionality with self-hosting options.
+
+### API Mapping
+
+```python
+# Before (Weights & Biases)
+import wandb
+
+wandb.init(project="my-project", name="experiment-1")
+
+wandb.config.learning_rate = 0.001
+wandb.config.batch_size = 32
+
+for epoch in range(10):
+    # Training loop
+    loss = train_epoch()
+    wandb.log({"loss": loss, "epoch": epoch})
+
+wandb.log_model(path="./model", name="my-model")
+wandb.finish()
+
+# After (MLflow)
+import mlflow
+
+mlflow.set_experiment("my-project")
+
+with mlflow.start_run(run_name="experiment-1"):
+    # Log hyperparameters
+    mlflow.log_params({
+        "learning_rate": 0.001,
+        "batch_size": 32
+    })
+    
+    for epoch in range(10):
+        # Training loop
+        loss = train_epoch()
+        mlflow.log_metrics({"loss": loss}, step=epoch)
+    
+    # Log model
+    mlflow.log_artifact("./model")
+    # Or use flavor-specific logging
+    mlflow.sklearn.log_model(model, "model")
+```
+
+### Feature Comparison
+
+| W&B Feature | MLflow Equivalent | Migration Notes |
+|-------------|-------------------|-----------------|
+| `wandb.init()` | `mlflow.start_run()` | MLflow uses context managers |
+| `wandb.config` | `mlflow.log_params()` | Log all parameters at once |
+| `wandb.log()` | `mlflow.log_metric()` | Step-based logging supported |
+| `wandb.log_artifact()` | `mlflow.log_artifact()` | Similar functionality |
+| `wandb.log_model()` | `mlflow.<flavor>.log_model()` | Flavor-specific model logging |
+| Sweeps | MLflow Projects + Hyperopt | More flexible, code-based |
+| Tables | `mlflow.log_table()` | Native table logging |
+| Media logging | `mlflow.log_image()`, `mlflow.log_text()` | Direct media support |
+
+### Sweep/Hyperparameter Tuning Migration
+
+```python
+# Before (W&B Sweeps)
+import wandb
+
+sweep_config = {
+    'method': 'random',
+    'parameters': {
+        'learning_rate': {'values': [0.001, 0.01, 0.1]},
+        'batch_size': {'values': [16, 32, 64]}
+    }
+}
+
+sweep_id = wandb.sweep(sweep_config, project="my-project")
+wandb.agent(sweep_id, function=train)
+
+# After (MLflow with Optuna)
+import mlflow
+import optuna
+
+def objective(trial):
+    with mlflow.start_run(nested=True):
+        # Sample hyperparameters
+        lr = trial.suggest_float('learning_rate', 0.001, 0.1, log=True)
+        batch_size = trial.suggest_categorical('batch_size', [16, 32, 64])
+        
+        # Log parameters
+        mlflow.log_params({"learning_rate": lr, "batch_size": batch_size})
+        
+        # Train and get metric
+        score = train(lr, batch_size)
+        mlflow.log_metric("score", score)
+        
+        return score
+
+mlflow.set_experiment("my-project")
+with mlflow.start_run():
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials=100)
+    
+    # Log best params
+    mlflow.log_params(study.best_params)
+    mlflow.log_metric("best_score", study.best_value)
+```
+
+### Automated Migration Script
+
+```python
+import wandb
+import mlflow
+import json
+
+def migrate_wandb_run_to_mlflow(wandb_run_path):
+    """Migrate a W&B run to MLflow."""
+    api = wandb.Api()
+    run = api.run(wandb_run_path)
+    
+    mlflow.set_experiment(run.project)
+    
+    with mlflow.start_run(run_name=run.name):
+        # Migrate config (hyperparameters)
+        mlflow.log_params(run.config)
+        
+        # Migrate metrics
+        history = run.history()
+        for idx, row in history.iterrows():
+            metrics = {k: v for k, v in row.items() 
+                      if k not in ['_step', '_timestamp']}
+            mlflow.log_metrics(metrics, step=row.get('_step', idx))
+        
+        # Migrate tags
+        for key, value in run.tags.items():
+            mlflow.set_tag(key, value)
+        
+        # Migrate artifacts
+        for artifact in run.logged_artifacts():
+            artifact.download()
+            mlflow.log_artifact(artifact.name)
+        
+        print(f"Migrated run {run.name} to MLflow")
+
+# Usage
+migrate_wandb_run_to_mlflow("username/project/run_id")
+```
+
+## Migrating from Neptune
+
+Neptune is another commercial ML experiment tracking platform.
+
+### API Mapping
+
+```python
+# Before (Neptune)
+import neptune
+
+run = neptune.init_run(
+    project="workspace/project",
+    api_token="YOUR_API_TOKEN"
+)
+
+run["parameters"] = {"learning_rate": 0.001, "batch_size": 32}
+
+for epoch in range(10):
+    run["metrics/loss"].append(loss)
+    run["metrics/accuracy"].append(accuracy)
+
+run["model"].upload("model.pkl")
+run.stop()
+
+# After (MLflow)
+import mlflow
+
+mlflow.set_experiment("project")
+
+with mlflow.start_run():
+    mlflow.log_params({
+        "learning_rate": 0.001,
+        "batch_size": 32
+    })
+    
+    for epoch in range(10):
+        mlflow.log_metrics({
+            "loss": loss,
+            "accuracy": accuracy
+        }, step=epoch)
+    
+    mlflow.log_artifact("model.pkl")
+```
+
+### Feature Mapping
+
+| Neptune Feature | MLflow Equivalent | Notes |
+|-----------------|-------------------|---------|
+| `neptune.init_run()` | `mlflow.start_run()` | Run creation |
+| `run["parameters"]` | `mlflow.log_params()` | Parameter logging |
+| `run["metrics/x"].append()` | `mlflow.log_metric()` | Metric logging with steps |
+| `run["model"].upload()` | `mlflow.log_artifact()` | Artifact upload |
+| Metadata namespace | MLflow tags | Use tags for metadata |
+| Series | Metrics with steps | Built-in time series support |
+
+## Migrating from Comet ML
+
+```python
+# Before (Comet)
+from comet_ml import Experiment
+
+experiment = Experiment(
+    api_key="YOUR_API_KEY",
+    project_name="my-project"
+)
+
+experiment.log_parameters({"learning_rate": 0.001})
+experiment.log_metric("loss", loss, step=epoch)
+experiment.log_model("my-model", "model.pkl")
+experiment.end()
+
+# After (MLflow)
+import mlflow
+
+mlflow.set_experiment("my-project")
+
+with mlflow.start_run():
+    mlflow.log_params({"learning_rate": 0.001})
+    mlflow.log_metric("loss", loss, step=epoch)
+    mlflow.sklearn.log_model(model, "my-model")
+```
+
+## Migrating from SageMaker Experiments
+
+AWS SageMaker has its own experiment tracking. MLflow can work alongside or replace it.
+
+### Running MLflow on SageMaker
+
+```python
+import mlflow
+import sagemaker
+from sagemaker.session import Session
+
+# Set up MLflow to use SageMaker S3 for artifact storage
+mlflow.set_tracking_uri("http://your-mlflow-server:5000")
+
+# Use SageMaker's S3 bucket for artifacts
+sagemaker_session = Session()
+s3_bucket = sagemaker_session.default_bucket()
+
+mlflow.set_experiment("sagemaker-migration")
+
+with mlflow.start_run():
+    mlflow.log_params({"instance_type": "ml.m5.xlarge"})
+    
+    # Your SageMaker training code
+    # MLflow tracks everything
+    
+    mlflow.log_metric("training_loss", loss)
+```
+
+### Deploying MLflow Models to SageMaker
+
+```python
+import mlflow.sagemaker
+
+# Deploy MLflow model to SageMaker
+mlflow.sagemaker.deploy(
+    model_uri="models:/my-model/1",
+    app_name="mlflow-model-deployment",
+    execution_role_arn="arn:aws:iam::123456789:role/SageMakerRole",
+    instance_type="ml.m5.xlarge",
+    instance_count=1,
+    region_name="us-east-1"
+)
+```
+
+## General Migration Best Practices
+
+### 1. Parallel Running
+
+Run both platforms in parallel initially:
+
+```python
+import mlflow
+import wandb  # or other platform
+
+# Initialize both
+wandb.init(project="project")
+mlflow.set_experiment("project")
+
+with mlflow.start_run():
+    # Log to both platforms
+    params = {"lr": 0.001, "batch_size": 32}
+    
+    wandb.config.update(params)
+    mlflow.log_params(params)
+    
+    for epoch in range(10):
+        loss = train_epoch()
+        
+        wandb.log({"loss": loss})
+        mlflow.log_metric("loss", loss, step=epoch)
+
+wandb.finish()
+```
+
+### 2. Create Migration Scripts
+
+```python
+def migrate_experiment(source_platform, experiment_id, mlflow_experiment_name):
+    """
+    Generic migration function.
+    Adapt based on source platform API.
+    """
+    mlflow.set_experiment(mlflow_experiment_name)
+    
+    # Fetch experiment data from source
+    runs = source_platform.get_runs(experiment_id)
+    
+    for run in runs:
+        with mlflow.start_run(run_name=run.name):
+            # Migrate parameters
+            mlflow.log_params(run.params)
+            
+            # Migrate metrics
+            for metric_name, values in run.metrics.items():
+                for step, value in enumerate(values):
+                    mlflow.log_metric(metric_name, value, step=step)
+            
+            # Migrate artifacts
+            for artifact in run.artifacts:
+                mlflow.log_artifact(artifact.path)
+            
+            # Migrate tags
+            mlflow.set_tags(run.tags)
+```
+
+### 3. Validate Migration
+
+```python
+def validate_migration(original_run_id, mlflow_run_id):
+    """
+    Validate that migration was successful.
+    """
+    mlflow_client = mlflow.tracking.MlflowClient()
+    mlflow_run = mlflow_client.get_run(mlflow_run_id)
+    
+    # Compare metrics
+    original_metrics = get_original_metrics(original_run_id)
+    mlflow_metrics = mlflow_run.data.metrics
+    
+    assert len(original_metrics) == len(mlflow_metrics), "Metric count mismatch"
+    
+    for key in original_metrics:
+        assert key in mlflow_metrics, f"Missing metric: {key}"
+    
+    print("✅ Migration validated successfully")
+```
+
+### 4. Update Team Workflows
+
+```python
+# Create a wrapper for easier team transition
+class MLTracker:
+    """Unified interface for team migration."""
+    
+    def __init__(self, experiment_name):
+        mlflow.set_experiment(experiment_name)
+        self.run = None
+    
+    def start(self, run_name=None):
+        self.run = mlflow.start_run(run_name=run_name)
+        return self
+    
+    def log_params(self, params):
+        mlflow.log_params(params)
+    
+    def log_metric(self, name, value, step=None):
+        mlflow.log_metric(name, value, step=step)
+    
+    def log_artifact(self, path):
+        mlflow.log_artifact(path)
+    
+    def finish(self):
+        mlflow.end_run()
+
+# Usage - minimal code changes for team
+tracker = MLTracker("my-project")
+with tracker.start("experiment-1"):
+    tracker.log_params({"lr": 0.001})
+    tracker.log_metric("loss", 0.5)
+    tracker.log_artifact("model.pkl")
+```
+
+## Setting Up MLflow Infrastructure
+
+### Self-Hosted Deployment
+
+```bash
+# Using Docker Compose
+wget https://raw.githubusercontent.com/mlflow/mlflow/master/docker-compose.yml
+docker-compose up -d
+
+# Or manual setup with PostgreSQL backend
+mlflow server \
+    --backend-store-uri postgresql://user:pass@localhost/mlflow \
+    --default-artifact-root s3://my-mlflow-bucket \
+    --host 0.0.0.0 \
+    --port 5000
+```
+
+### Cloud-Managed Options
+
+- **AWS**: Use Amazon SageMaker with MLflow integration
+- **Azure**: Azure ML with MLflow tracking
+- **Databricks**: Managed MLflow included
+- **GCP**: Deploy on GKE with Cloud SQL and GCS
+
+## Post-Migration Checklist
+
+- [ ] All historical experiments migrated
+- [ ] Model registry populated
+- [ ] Artifacts accessible
+- [ ] Team trained on MLflow
+- [ ] CI/CD pipelines updated
+- [ ] Documentation updated
+- [ ] Old platform subscription cancelled (if applicable)
+- [ ] Monitoring and alerts configured
+- [ ] Backup strategy implemented
+- [ ] Access controls configured
+
+## Getting Help
+
+- **Documentation**: [https://mlflow.org/docs/latest](https://mlflow.org/docs/latest)
+- **Migration Support**: [GitHub Discussions](https://github.com/mlflow/mlflow/discussions)
+- **Community**: [MLflow Slack](https://mlflow.org/slack)
+- **Professional Services**: Available through Databricks and partners
+
+## Next Steps
+
+After migration:
+
+1. **Explore MLflow Features**:
+   - Set up model registry for model lifecycle management
+   - Configure model deployment pipelines
+   - Implement LLM tracing for GenAI applications
+   - Set up prompt management and optimization
+
+2. **Optimize Your Setup**:
+   - Configure artifact storage for your cloud provider
+   - Set up authentication and access controls
+   - Implement backup and disaster recovery
+   - Scale MLflow server for production workloads
+
+3. **Enhance Team Productivity**:
+   - Create shared experiment templates
+   - Set up automated model evaluation
+   - Implement CI/CD for ML workflows
+   - Configure notifications and monitoring

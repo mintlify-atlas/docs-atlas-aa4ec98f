@@ -1,0 +1,388 @@
+---
+title: mlflow runs
+description: Manage MLflow runs from the command line
+---
+
+Manage runs in MLflow experiments. To manage runs of experiments associated with a tracking server, set the `MLFLOW_TRACKING_URI` environment variable to the URL of the desired server.
+
+## Commands
+
+### list
+
+List all runs of a specified experiment.
+
+```bash
+mlflow runs list [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string" required>
+  ID of the experiment to list runs from.
+  
+  **Environment variable:** `MLFLOW_EXPERIMENT_ID`
+</ParamField>
+
+<ParamField path="--view" type="string" default="active_only">
+  Select view type for runs. Valid values: `active_only` (default), `deleted_only`, `all`.
+  
+  **Short option:** `-v`
+</ParamField>
+
+#### Example
+
+```bash
+# List all active runs in experiment 1
+mlflow runs list --experiment-id 1
+
+# List deleted runs
+mlflow runs list --experiment-id 1 --view deleted_only
+
+# List all runs (active and deleted)
+mlflow runs list --experiment-id 1 -v all
+
+# Use environment variable
+export MLFLOW_EXPERIMENT_ID=1
+mlflow runs list
+```
+
+---
+
+### create
+
+Create a new MLflow run and immediately end it with the specified status.
+
+```bash
+mlflow runs create [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string">
+  ID of the experiment to create the run under. Mutually exclusive with `--experiment-name`.
+  
+  **Environment variable:** `MLFLOW_EXPERIMENT_ID`
+</ParamField>
+
+<ParamField path="--experiment-name" type="string">
+  Name of the experiment to create the run under. Mutually exclusive with `--experiment-id`.
+  
+  **Environment variable:** `MLFLOW_EXPERIMENT_NAME`
+</ParamField>
+
+<ParamField path="--run-name" type="string">
+  Human-readable name for the run (e.g., `baseline-model-v1`).
+</ParamField>
+
+<ParamField path="--description" type="string">
+  Longer description of what this run represents.
+</ParamField>
+
+<ParamField path="--tags" type="string">
+  Key-value pairs to categorize and filter runs. Format: `key=value`. Use multiple times for multiple tags.
+  
+  **Short option:** `-t`
+</ParamField>
+
+<ParamField path="--status" type="string" default="FINISHED">
+  Final status of the run. Valid values: `FINISHED` (default), `FAILED`, `KILLED`.
+</ParamField>
+
+<ParamField path="--parent-run-id" type="string">
+  ID of a parent run to create a nested run under.
+</ParamField>
+
+#### Example
+
+```bash
+# Create a finished run
+mlflow runs create --experiment-id 1 --run-name "baseline-v1"
+
+# Create run with tags and description
+mlflow runs create \
+  --experiment-name "my-experiment" \
+  --run-name "model-v2" \
+  --description "Second iteration with tuned hyperparameters" \
+  -t "env=prod" \
+  -t "model=xgboost" \
+  -t "version=2.0"
+
+# Create a failed run
+mlflow runs create \
+  --experiment-id 1 \
+  --run-name "failed-attempt" \
+  --status FAILED
+
+# Create a nested run
+mlflow runs create \
+  --experiment-id 1 \
+  --parent-run-id "abc123" \
+  --run-name "child-run"
+```
+
+---
+
+### describe
+
+Get detailed information about a run in JSON format.
+
+```bash
+mlflow runs describe --run-id RUN_ID
+```
+
+#### Options
+
+<ParamField path="--run-id" type="string" required>
+  ID of the run to describe.
+</ParamField>
+
+#### Example
+
+```bash
+# Get run details as JSON
+mlflow runs describe --run-id abc123def456
+```
+
+#### Output
+
+Outputs complete run details including:
+- Run info (run ID, experiment ID, status, timestamps)
+- Parameters
+- Metrics
+- Tags
+- Artifact URI
+
+---
+
+### delete
+
+Mark a run for deletion.
+
+```bash
+mlflow runs delete --run-id RUN_ID
+```
+
+#### Options
+
+<ParamField path="--run-id" type="string" required>
+  ID of the run to delete.
+</ParamField>
+
+#### Example
+
+```bash
+# Delete a run
+mlflow runs delete --run-id abc123def456
+```
+
+#### Notes
+
+- This soft-deletes the run
+- Deleted runs can be restored with the `restore` command
+- Returns an error if the run does not exist or is already deleted
+- Permanently delete runs using `mlflow gc` command
+
+---
+
+### restore
+
+Restore a deleted run.
+
+```bash
+mlflow runs restore --run-id RUN_ID
+```
+
+#### Options
+
+<ParamField path="--run-id" type="string" required>
+  ID of the run to restore.
+</ParamField>
+
+#### Example
+
+```bash
+# Restore a deleted run
+mlflow runs restore --run-id abc123def456
+```
+
+#### Notes
+
+- Returns an error if the run is active or permanently deleted
+
+---
+
+### link-traces
+
+Link traces to a run.
+
+```bash
+mlflow runs link-traces [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--run-id" type="string" required>
+  ID of the run to link traces to.
+</ParamField>
+
+<ParamField path="--trace-id" type="string" required>
+  Trace ID to link to the run. Can be specified multiple times (maximum 100 traces).
+  
+  **Short option:** `-t`
+</ParamField>
+
+#### Example
+
+```bash
+# Link a single trace to a run
+mlflow runs link-traces --run-id abc123 --trace-id trace-001
+
+# Link multiple traces
+mlflow runs link-traces \
+  --run-id abc123 \
+  -t trace-001 \
+  -t trace-002 \
+  -t trace-003
+```
+
+#### Notes
+
+- Maximum 100 traces can be linked in a single command
+- Establishes relationships between traces and runs for tracking and analysis
+
+## Complete Examples
+
+### Basic Run Management
+
+```bash
+# List runs in an experiment
+mlflow runs list --experiment-id 1
+
+# Create a new run
+mlflow runs create \
+  --experiment-id 1 \
+  --run-name "baseline-model" \
+  --tags "env=dev" \
+  --tags "model=sklearn"
+# Output: {"run_id": "abc123", "experiment_id": "1", "status": "FINISHED", "run_name": "baseline-model"}
+
+# Describe the run
+mlflow runs describe --run-id abc123
+
+# Delete the run
+mlflow runs delete --run-id abc123
+
+# Restore the run
+mlflow runs restore --run-id abc123
+```
+
+### Creating Runs with Different Statuses
+
+```bash
+# Successful run
+mlflow runs create \
+  --experiment-name "model-training" \
+  --run-name "success-run" \
+  --status FINISHED
+
+# Failed run
+mlflow runs create \
+  --experiment-name "model-training" \
+  --run-name "failed-run" \
+  --status FAILED \
+  -t "error=out_of_memory"
+
+# Killed run
+mlflow runs create \
+  --experiment-name "model-training" \
+  --run-name "killed-run" \
+  --status KILLED \
+  -t "reason=timeout"
+```
+
+### Nested Runs
+
+```bash
+# Create parent run
+mlflow runs create \
+  --experiment-id 1 \
+  --run-name "parent-run"
+# Output: {"run_id": "parent123", ...}
+
+# Create child runs
+mlflow runs create \
+  --experiment-id 1 \
+  --parent-run-id "parent123" \
+  --run-name "child-run-1"
+
+mlflow runs create \
+  --experiment-id 1 \
+  --parent-run-id "parent123" \
+  --run-name "child-run-2"
+```
+
+### Working with Remote Tracking Server
+
+```bash
+# Set tracking URI
+export MLFLOW_TRACKING_URI=http://mlflow.example.com:5000
+
+# Create run on remote server
+mlflow runs create \
+  --experiment-id 1 \
+  --run-name "remote-run" \
+  -t "server=remote"
+
+# List runs from remote server
+mlflow runs list --experiment-id 1
+```
+
+### Tagging Runs for Organization
+
+```bash
+# Create run with multiple organizational tags
+mlflow runs create \
+  --experiment-name "production" \
+  --run-name "model-v1.2.3" \
+  --description "Production deployment candidate" \
+  -t "env=prod" \
+  -t "model=xgboost" \
+  -t "version=1.2.3" \
+  -t "team=ml-ops" \
+  -t "priority=high"
+```
+
+### Linking Traces to Runs
+
+```bash
+# Create a run
+mlflow runs create --experiment-id 1 --run-name "traced-run"
+# Output: {"run_id": "run123", ...}
+
+# Link traces to the run
+mlflow runs link-traces \
+  --run-id run123 \
+  -t trace-001 \
+  -t trace-002 \
+  -t trace-003
+# Output: Successfully linked 3 trace(s) to run 'run123'
+```
+
+### Viewing Run Lifecycle
+
+```bash
+# View active runs
+mlflow runs list --experiment-id 1 --view active_only
+
+# Delete a run
+mlflow runs delete --run-id abc123
+
+# View deleted runs
+mlflow runs list --experiment-id 1 --view deleted_only
+
+# View all runs (active and deleted)
+mlflow runs list --experiment-id 1 --view all
+
+# Restore deleted run
+mlflow runs restore --run-id abc123
+```

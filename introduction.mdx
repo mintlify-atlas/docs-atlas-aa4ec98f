@@ -1,0 +1,141 @@
+---
+title: Introduction to MLflow
+description: Open-source platform for the complete machine learning lifecycle
+---
+
+## What is MLflow?
+
+MLflow is an open-source developer platform designed to build AI/LLM applications and models with confidence. It provides an integrated solution for managing the complete machine learning lifecycle, from experimentation to production deployment.
+
+<Note>
+MLflow is the only platform that provides a unified solution for all your AI/ML needs, including LLMs, Agents, Deep Learning, and traditional machine learning.
+</Note>
+
+## Key Features and Capabilities
+
+MLflow offers comprehensive capabilities for both LLM/GenAI developers and data scientists:
+
+### For LLM / GenAI Developers
+
+<CardGroup cols={2}>
+  <Card title="Tracing / Observability" icon="magnifying-glass">
+    Trace the internal states of your LLM/agentic applications for debugging quality issues and monitoring performance with ease.
+  </Card>
+  
+  <Card title="LLM Evaluation" icon="chart-bar">
+    A suite of automated model evaluation tools, seamlessly integrated with experiment tracking to compare across multiple versions.
+  </Card>
+  
+  <Card title="Prompt Management" icon="robot">
+    Version, track, and reuse prompts across your organization, helping maintain consistency and improve collaboration in prompt development.
+  </Card>
+  
+  <Card title="App Version Tracking" icon="box">
+    Keep track of many moving parts in your AI applications, such as models, prompts, tools, and code, with end-to-end lineage.
+  </Card>
+</CardGroup>
+
+### For Data Scientists
+
+<CardGroup cols={2}>
+  <Card title="Experiment Tracking" icon="flask">
+    Track your models, parameters, metrics, and evaluation results in ML experiments and compare them using an interactive UI.
+  </Card>
+  
+  <Card title="Model Registry" icon="database">
+    A centralized model store designed to collaboratively manage the full lifecycle and deployment of machine learning models.
+  </Card>
+  
+  <Card title="Deployment" icon="rocket">
+    Tools for seamless model deployment to batch and real-time scoring on platforms like Docker, Kubernetes, Azure ML, and AWS SageMaker.
+  </Card>
+</CardGroup>
+
+## When to Use MLflow
+
+MLflow is ideal for:
+
+- **Building and deploying LLM applications** - Track prompts, trace application flows, and evaluate GenAI outputs
+- **Managing ML experiments** - Compare different models, hyperparameters, and datasets across multiple runs
+- **Operationalizing models** - Move models from development to production with reproducibility and governance
+- **Team collaboration** - Share experiments, models, and results across data science teams
+- **Multi-framework projects** - Work with any ML library including scikit-learn, TensorFlow, PyTorch, XGBoost, and more
+
+## High-Level Architecture
+
+MLflow is organized into several core components:
+
+### Tracking
+
+The MLflow Tracking component provides APIs for logging parameters, code versions, metrics, and artifacts when running your machine learning code. It includes:
+
+- **Fluent API** - High-level functions like `mlflow.log_param()`, `mlflow.log_metric()`
+- **Tracking Server** - Central server for storing and querying experiment data
+- **Tracking UI** - Web-based interface for visualizing and comparing runs
+
+### Models
+
+MLflow Models is a convention for packaging machine learning models in multiple formats called "flavors." It supports:
+
+- **Model packaging** - Standardized format for ML models from any framework
+- **Model signature** - Schema definition for model inputs and outputs
+- **Model deployment** - Export models for serving via REST API, Docker, or cloud platforms
+
+### Model Registry
+
+The Model Registry component provides:
+
+- **Centralized model store** - Collaborative hub for sharing models
+- **Model versioning** - Track and manage model versions
+- **Stage transitions** - Move models through stages (Staging, Production, Archived)
+- **Model lineage** - Track which datasets and code produced a model
+
+### Projects
+
+MLflow Projects provide a format for packaging data science code in a reusable, reproducible way:
+
+- **Project specification** - Define dependencies, parameters, and entry points
+- **Execution environments** - Support for Conda, virtualenv, and Docker
+- **Remote execution** - Run projects on different backends (Kubernetes, Databricks, etc.)
+
+### Tracing
+
+MLflow Tracing provides LLM observability:
+
+- **Auto-tracing** - Automatic instrumentation for popular GenAI libraries (OpenAI, LangChain, LlamaIndex, etc.)
+- **Trace visualization** - View internal states and execution flows
+- **Performance monitoring** - Track latency, token usage, and costs
+
+## Supported Programming Languages
+
+MLflow supports multiple programming languages:
+
+- **Python** - Full-featured SDK with comprehensive support
+- **TypeScript / JavaScript** - Tracing support for Node.js applications
+- **Java** - Client library for tracking and model serving
+- **R** - Complete API for R users
+
+## Integrations
+
+MLflow is natively integrated with popular machine learning frameworks and GenAI libraries:
+
+**Traditional ML**: scikit-learn, XGBoost, LightGBM, CatBoost, H2O, Spark MLlib
+
+**Deep Learning**: TensorFlow, Keras, PyTorch, PyTorch Lightning
+
+**GenAI/LLMs**: OpenAI, Anthropic, LangChain, LlamaIndex, Hugging Face Transformers, DSPy, AutoGen, CrewAI
+
+**Cloud Providers**: AWS SageMaker, Azure ML, Databricks, Google Cloud
+
+## Hosting Options
+
+MLflow can run in various environments:
+
+- **Local development** - Run MLflow server on your local machine
+- **On-premise servers** - Deploy to your own infrastructure
+- **Cloud platforms** - Managed services from AWS, Azure, Databricks, and Nebius
+- **Containers** - Deploy via Docker and Kubernetes
+
+<Card title="Next Steps" icon="arrow-right" href="/quickstart">
+  Get started with MLflow in 5 minutes
+</Card>

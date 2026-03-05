@@ -1,0 +1,328 @@
+---
+title: mlflow experiments
+description: Manage MLflow experiments from the command line
+---
+
+Manage experiments in MLflow. To manage experiments associated with a tracking server, set the `MLFLOW_TRACKING_URI` environment variable to the URL of the desired server.
+
+## Commands
+
+### create
+
+Create a new experiment.
+
+```bash
+mlflow experiments create [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-name" type="string" required>
+  Name of the experiment to create.
+  
+  **Short option:** `-n`
+</ParamField>
+
+<ParamField path="--artifact-location" type="string">
+  Base location for runs to store artifact results. Artifacts will be stored at `$artifact_location/$run_id/artifacts`. If not provided, the tracking server will pick a default.
+  
+  **Short option:** `-l`
+</ParamField>
+
+#### Example
+
+```bash
+# Create experiment with default artifact location
+mlflow experiments create --experiment-name "my-experiment"
+
+# Create experiment with custom artifact location
+mlflow experiments create -n "production-model" -l "s3://my-bucket/experiments"
+```
+
+---
+
+### search
+
+Search for experiments in the configured tracking server.
+
+```bash
+mlflow experiments search [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--view" type="string" default="active_only">
+  Select view type for experiments. Valid values: `active_only` (default), `deleted_only`, `all`.
+  
+  **Short option:** `-v`
+</ParamField>
+
+<ParamField path="--max-results" type="integer">
+  Maximum number of experiments to return. If not provided, returns all experiments. Must be non-negative.
+</ParamField>
+
+#### Example
+
+```bash
+# List all active experiments
+mlflow experiments search
+
+# List deleted experiments
+mlflow experiments search --view deleted_only
+
+# List all experiments (active and deleted)
+mlflow experiments search -v all
+
+# Limit results to 10 experiments
+mlflow experiments search --max-results 10
+```
+
+---
+
+### get
+
+Get details of an experiment by ID or name.
+
+```bash
+mlflow experiments get [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string">
+  ID of the experiment to retrieve. Mutually exclusive with `--experiment-name`.
+  
+  **Short option:** `-x`
+</ParamField>
+
+<ParamField path="--experiment-name" type="string">
+  Name of the experiment to retrieve. Mutually exclusive with `--experiment-id`.
+  
+  **Short option:** `-n`
+</ParamField>
+
+<ParamField path="--output" type="string" default="table">
+  Output format. Valid values: `table` (default), `json`.
+</ParamField>
+
+#### Example
+
+```bash
+# Get experiment by ID (table format)
+mlflow experiments get --experiment-id 1
+mlflow experiments get -x 0
+
+# Get experiment by name
+mlflow experiments get --experiment-name "My Experiment"
+mlflow experiments get -n "Default"
+
+# Get experiment in JSON format
+mlflow experiments get -n "My Experiment" --output json
+```
+
+---
+
+### delete
+
+Mark an active experiment for deletion.
+
+```bash
+mlflow experiments delete --experiment-id EXPERIMENT_ID
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string" required>
+  ID of the experiment to delete.
+  
+  **Short option:** `-x`
+</ParamField>
+
+#### Example
+
+```bash
+# Delete experiment by ID
+mlflow experiments delete --experiment-id 3
+mlflow experiments delete -x 3
+```
+
+#### Notes
+
+- This soft-deletes the experiment and its metadata, runs, and artifacts (if in default location)
+- Deleted experiments can be restored using the `restore` command
+- For FileStore backend, experiments are moved to a `.trash` folder
+- Use a cron job or workflow to permanently delete from `.trash`
+
+---
+
+### restore
+
+Restore a deleted experiment.
+
+```bash
+mlflow experiments restore --experiment-id EXPERIMENT_ID
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string" required>
+  ID of the experiment to restore.
+  
+  **Short option:** `-x`
+</ParamField>
+
+#### Example
+
+```bash
+# Restore deleted experiment
+mlflow experiments restore --experiment-id 3
+mlflow experiments restore -x 3
+```
+
+#### Notes
+
+- Restores the experiment and its associated metadata, runs, and data
+- Throws an error if the experiment is already active or permanently deleted
+
+---
+
+### rename
+
+Rename an active experiment.
+
+```bash
+mlflow experiments rename [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string" required>
+  ID of the experiment to rename.
+  
+  **Short option:** `-x`
+</ParamField>
+
+<ParamField path="--new-name" type="string" required>
+  New name for the experiment.
+</ParamField>
+
+#### Example
+
+```bash
+# Rename an experiment
+mlflow experiments rename --experiment-id 1 --new-name "Updated Name"
+mlflow experiments rename -x 1 --new-name "Production Model V2"
+```
+
+#### Notes
+
+- Only works with active experiments
+- Returns an error if the experiment is inactive
+
+---
+
+### csv
+
+Generate CSV with all runs for an experiment.
+
+```bash
+mlflow experiments csv [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--experiment-id" type="string" required>
+  ID of the experiment to export.
+  
+  **Short option:** `-x`
+</ParamField>
+
+<ParamField path="--filename" type="string">
+  Output filename for the CSV. If not specified, outputs to stdout.
+  
+  **Short option:** `-o`
+</ParamField>
+
+#### Example
+
+```bash
+# Export experiment runs to CSV file
+mlflow experiments csv --experiment-id 1 --filename runs.csv
+mlflow experiments csv -x 1 -o my_runs.csv
+
+# Print to stdout
+mlflow experiments csv --experiment-id 1
+```
+
+## Complete Examples
+
+### Basic Workflow
+
+```bash
+# Create a new experiment
+mlflow experiments create -n "image-classification"
+# Output: Created experiment 'image-classification' with id 5
+
+# List all experiments
+mlflow experiments search
+
+# Get experiment details
+mlflow experiments get -x 5
+
+# Export runs to CSV
+mlflow experiments csv -x 5 -o runs.csv
+
+# Rename the experiment
+mlflow experiments rename -x 5 --new-name "image-classification-v2"
+```
+
+### Working with Remote Tracking Server
+
+```bash
+# Set tracking URI
+export MLFLOW_TRACKING_URI=http://mlflow.example.com:5000
+
+# Create experiment on remote server
+mlflow experiments create -n "remote-experiment"
+
+# Search experiments
+mlflow experiments search --max-results 20
+```
+
+### Experiment Lifecycle Management
+
+```bash
+# Create experiment
+mlflow experiments create -n "temp-experiment"
+# Output: Created experiment 'temp-experiment' with id 10
+
+# Delete experiment
+mlflow experiments delete -x 10
+# Output: Experiment with ID 10 has been deleted.
+
+# View deleted experiments
+mlflow experiments search --view deleted_only
+
+# Restore experiment
+mlflow experiments restore -x 10
+# Output: Experiment with id 10 has been restored.
+```
+
+### Custom Artifact Storage
+
+```bash
+# S3 artifact location
+mlflow experiments create \
+  -n "s3-experiment" \
+  -l "s3://my-bucket/mlflow-artifacts"
+
+# Azure Blob Storage
+mlflow experiments create \
+  -n "azure-experiment" \
+  -l "wasbs://container@account.blob.core.windows.net/path"
+
+# Google Cloud Storage
+mlflow experiments create \
+  -n "gcs-experiment" \
+  -l "gs://my-bucket/mlflow-artifacts"
+```

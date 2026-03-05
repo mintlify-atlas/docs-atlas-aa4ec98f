@@ -1,0 +1,539 @@
+---
+title: Local Deployment
+description: Deploy and serve MLflow models locally for development and testing
+---
+
+Local deployment allows you to quickly test your models by serving them on your local machine. This is ideal for development, testing, and debugging before deploying to production environments.
+
+## Quick Start
+
+Serve a model locally using the MLflow CLI:
+
+```bash
+mlflow models serve -m runs:/my-run-id/model -p 5000
+```
+
+Access the model at `http://localhost:5000/invocations`
+
+## Using the mlflow models serve Command
+
+The `mlflow models serve` command starts a local REST API server for your model.
+
+### Basic Usage
+
+```bash
+mlflow models serve \
+  --model-uri models:/my-model/production \
+  --port 5000 \
+  --host 0.0.0.0
+```
+
+### Command Options
+
+<ParamField path="--model-uri" type="string" required>
+  URI of the model to serve. Supports:
+  - Local paths: `/path/to/model`
+  - Runs URI: `runs:/run-id/path/to/model`
+  - Models URI: `models:/model-name/version` or `models:/model-name/stage`
+  - Remote URIs: `s3://bucket/path/to/model`
+</ParamField>
+
+<ParamField path="--port" type="integer" default="5000">
+  Port to serve the model on
+</ParamField>
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Host to bind the server to. Use `0.0.0.0` to allow external connections
+</ParamField>
+
+<ParamField path="--timeout" type="integer" default="60">
+  Timeout in seconds for serving requests
+</ParamField>
+
+<ParamField path="--workers" type="integer" default="1">
+  Number of worker processes for handling requests
+</ParamField>
+
+<ParamField path="--env-manager" type="string" default="virtualenv">
+  Environment manager to use: `virtualenv`, `conda`, or `local`
+</ParamField>
+
+<ParamField path="--enable-mlserver" type="boolean" default="false">
+  Enable MLServer for serving (provides additional features like model explainability)
+</ParamField>
+
+## Model URI Formats
+
+<CodeGroup>
+```bash Local Path
+mlflow models serve -m /path/to/model
+```
+
+```bash Run ID
+mlflow models serve -m runs:/abc123def456/model
+```
+
+```bash Model Registry (Version)
+mlflow models serve -m models:/my-model/1
+```
+
+```bash Model Registry (Stage)
+mlflow models serve -m models:/my-model/production
+```
+
+```bash S3 URI
+mlflow models serve -m s3://my-bucket/path/to/model
+```
+</CodeGroup>
+
+## Making Predictions
+
+Once the model is served, you can make predictions using HTTP requests.
+
+### Using curl
+
+<Tabs>
+  <Tab title="Pandas Split Format">
+    ```bash
+    curl http://127.0.0.1:5000/invocations \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "dataframe_split": {
+          "columns": ["feature1", "feature2", "feature3"],
+          "index": [0, 1, 2],
+          "data": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+        }
+      }'
+    ```
+  </Tab>
+
+  <Tab title="Pandas Records Format">
+    ```bash
+    curl http://127.0.0.1:5000/invocations \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "dataframe_records": [
+          {"feature1": 1.0, "feature2": 2.0, "feature3": 3.0},
+          {"feature1": 4.0, "feature2": 5.0, "feature3": 6.0}
+        ]
+      }'
+    ```
+  </Tab>
+
+  <Tab title="Tensor/Array Format">
+    ```bash
+    curl http://127.0.0.1:5000/invocations \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "inputs": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+      }'
+    ```
+  </Tab>
+
+  <Tab title="Instances Format">
+    ```bash
+    curl http://127.0.0.1:5000/invocations \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "instances": [
+          {"feature1": 1.0, "feature2": 2.0},
+          {"feature1": 3.0, "feature2": 4.0}
+        ]
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+### Using Python
+
+```python
+import requests
+import json
+import pandas as pd
+
+# Prepare input data
+data = pd.DataFrame({
+    "feature1": [1.0, 4.0, 7.0],
+    "feature2": [2.0, 5.0, 8.0],
+    "feature3": [3.0, 6.0, 9.0]
+})
+
+# Convert to split format
+payload = {
+    "dataframe_split": data.to_dict(orient="split")
+}
+
+# Make prediction request
+response = requests.post(
+    "http://127.0.0.1:5000/invocations",
+    headers={"Content-Type": "application/json"},
+    data=json.dumps(payload)
+)
+
+# Get predictions
+predictions = response.json()
+print(predictions)
+```
+
+## Local Deployment with run_local
+
+For testing deployment plugins locally:
+
+```bash
+mlflow deployments run-local \
+  --target <target-uri> \
+  --name test-deployment \
+  --model-uri models:/my-model/1 \
+  -C config_key=config_value
+```
+
+This command deploys the model locally using the specified deployment plugin, allowing you to test deployment configurations before deploying to production.
+
+## Python API for Local Serving
+
+Serve models programmatically using the Python API:
+
+```python
+from mlflow.models import get_flavor_backend
+from mlflow.utils import env_manager
+
+# Get the flavor backend
+backend = get_flavor_backend(
+    model_uri="models:/my-model/production",
+    env_manager=env_manager.VIRTUALENV,
+    workers=4,
+    install_mlflow=True
+)
+
+# Start serving (this blocks)
+backend.serve(
+    model_uri="models:/my-model/production",
+    port=5000,
+    host="0.0.0.0",
+    timeout=120,
+    enable_mlserver=False
+)
+```
+
+## Environment Managers
+
+MLflow supports different environment managers for serving models:
+
+<Tabs>
+  <Tab title="virtualenv (Default)">
+    Uses Python virtualenv to create isolated environments:
+    ```bash
+    mlflow models serve \
+      -m models:/my-model/1 \
+      --env-manager virtualenv
+    ```
+
+    **Pros:**
+    - Fast environment creation
+    - Good for Python-only dependencies
+    - Lightweight
+
+    **Cons:**
+    - Limited to Python packages
+    - No system-level dependencies
+  </Tab>
+
+  <Tab title="conda">
+    Uses Conda for environment management:
+    ```bash
+    mlflow models serve \
+      -m models:/my-model/1 \
+      --env-manager conda
+    ```
+
+    **Pros:**
+    - Supports system-level dependencies
+    - Better for complex environments
+    - Reproducible across platforms
+
+    **Cons:**
+    - Slower environment creation
+    - Larger disk footprint
+  </Tab>
+
+  <Tab title="local">
+    Uses the current Python environment:
+    ```bash
+    mlflow models serve \
+      -m models:/my-model/1 \
+      --env-manager local
+    ```
+
+    **Pros:**
+    - No environment creation overhead
+    - Fast startup
+
+    **Cons:**
+    - May have dependency conflicts
+    - Less reproducible
+  </Tab>
+</Tabs>
+
+## Using MLServer
+
+MLServer provides advanced serving capabilities built on the V2 Inference Protocol:
+
+```bash
+mlflow models serve \
+  -m models:/my-model/1 \
+  --enable-mlserver \
+  -p 5000
+```
+
+### MLServer Features
+
+<CardGroup cols={2}>
+  <Card title="V2 Protocol" icon="arrow-right-arrow-left">
+    Compatible with KServe and Seldon Core
+  </Card>
+  <Card title="Parallel Inference" icon="arrows-split-up-and-left">
+    Efficient batch processing
+  </Card>
+  <Card title="Model Explainability" icon="lightbulb">
+    Built-in model explanation endpoints
+  </Card>
+  <Card title="Custom Runtimes" icon="gear">
+    Extensible runtime support
+  </Card>
+</CardGroup>
+
+### MLServer Endpoints
+
+When using MLServer, additional endpoints are available:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v2/health/live` | Liveness probe |
+| `GET /v2/health/ready` | Readiness probe |
+| `GET /v2/models/{model_name}` | Model metadata |
+| `POST /v2/models/{model_name}/infer` | Inference endpoint |
+| `POST /v2/models/{model_name}/explain` | Model explanations |
+
+## Making Batch Predictions
+
+For batch predictions, use the `mlflow models predict` command:
+
+```bash
+# Prepare input data in CSV format
+echo "feature1,feature2,feature3
+1.0,2.0,3.0
+4.0,5.0,6.0" > input.csv
+
+# Make predictions
+mlflow models predict \
+  -m models:/my-model/1 \
+  -i input.csv \
+  -o predictions.json \
+  -t csv
+```
+
+### Python API for Batch Predictions
+
+```python
+from mlflow.models import predict
+import pandas as pd
+
+# Prepare input data
+input_data = pd.DataFrame({
+    "feature1": [1.0, 4.0, 7.0],
+    "feature2": [2.0, 5.0, 8.0],
+    "feature3": [3.0, 6.0, 9.0]
+})
+
+# Make predictions
+predictions = predict(
+    model_uri="models:/my-model/production",
+    input_data=input_data,
+    env_manager="virtualenv"
+)
+
+print(predictions)
+```
+
+## Health Check Endpoint
+
+The local server provides a health check endpoint:
+
+```bash
+curl http://127.0.0.1:5000/ping
+```
+
+Returns HTTP 200 if the server is healthy.
+
+## Production Considerations
+
+<Warning>
+Local deployment is intended for development and testing. For production deployments:
+- Use Docker containers for consistency
+- Deploy to Kubernetes for scalability
+- Use cloud-managed services for reliability
+- Implement proper monitoring and logging
+</Warning>
+
+### Performance Optimization
+
+<Steps>
+  <Step title="Increase Workers">
+    Use multiple workers to handle concurrent requests:
+    ```bash
+    mlflow models serve -m models:/my-model/1 --workers 4
+    ```
+  </Step>
+
+  <Step title="Use Local Environment">
+    Skip environment creation for faster startup:
+    ```bash
+    mlflow models serve -m models:/my-model/1 --env-manager local
+    ```
+  </Step>
+
+  <Step title="Enable MLServer">
+    Use MLServer for better throughput:
+    ```bash
+    mlflow models serve -m models:/my-model/1 --enable-mlserver
+    ```
+  </Step>
+
+  <Step title="Prepare Environment">
+    Pre-create the environment to reduce startup time:
+    ```bash
+    mlflow models prepare-env -m models:/my-model/1
+    ```
+  </Step>
+</Steps>
+
+## Example: Complete Local Deployment Workflow
+
+```python
+import mlflow
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+import requests
+import json
+import time
+import subprocess
+
+# 1. Train and log model
+X, y = load_iris(return_X_y=True, as_frame=True)
+model = RandomForestClassifier(n_estimators=10, random_state=42)
+model.fit(X, y)
+
+with mlflow.start_run() as run:
+    mlflow.sklearn.log_model(model, "model")
+    run_id = run.info.run_id
+
+print(f"Model logged with run_id: {run_id}")
+
+# 2. Start serving in background
+model_uri = f"runs:/{run_id}/model"
+process = subprocess.Popen([
+    "mlflow", "models", "serve",
+    "-m", model_uri,
+    "-p", "5000",
+    "--env-manager", "local"
+])
+
+# Wait for server to start
+time.sleep(10)
+
+try:
+    # 3. Make prediction
+    test_data = pd.DataFrame({
+        "sepal length (cm)": [5.1],
+        "sepal width (cm)": [3.5],
+        "petal length (cm)": [1.4],
+        "petal width (cm)": [0.2]
+    })
+
+    payload = {
+        "dataframe_split": test_data.to_dict(orient="split")
+    }
+
+    response = requests.post(
+        "http://127.0.0.1:5000/invocations",
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(payload)
+    )
+
+    predictions = response.json()
+    print(f"Predictions: {predictions}")
+
+finally:
+    # 4. Stop server
+    process.terminate()
+    process.wait()
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server won't start">
+    **Check port availability:**
+    ```bash
+    lsof -i :5000
+    ```
+
+    **Use a different port:**
+    ```bash
+    mlflow models serve -m models:/my-model/1 -p 8080
+    ```
+  </Accordion>
+
+  <Accordion title="Dependency conflicts">
+    **Use conda environment manager:**
+    ```bash
+    mlflow models serve -m models:/my-model/1 --env-manager conda
+    ```
+
+    **Or prepare environment first:**
+    ```bash
+    mlflow models prepare-env -m models:/my-model/1
+    ```
+  </Accordion>
+
+  <Accordion title="Slow predictions">
+    **Increase workers:**
+    ```bash
+    mlflow models serve -m models:/my-model/1 --workers 4
+    ```
+
+    **Use MLServer:**
+    ```bash
+    mlflow models serve -m models:/my-model/1 --enable-mlserver
+    ```
+  </Accordion>
+
+  <Accordion title="Model not found">
+    **Verify model URI:**
+    ```python
+    import mlflow
+    mlflow.set_tracking_uri("http://localhost:5000")
+    client = mlflow.MlflowClient()
+    model = client.get_model_version("my-model", "1")
+    print(model.source)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Package your model in a Docker container
+  </Card>
+  <Card title="Kubernetes" icon="dharmachakra" href="/deployment/kubernetes">
+    Deploy to Kubernetes for production
+  </Card>
+  <Card title="Cloud Providers" icon="cloud" href="/deployment/cloud-providers">
+    Deploy to AWS, Azure, or GCP
+  </Card>
+  <Card title="Model Registry" icon="database" href="/model-registry/overview">
+    Learn about model versioning and staging
+  </Card>
+</CardGroup>

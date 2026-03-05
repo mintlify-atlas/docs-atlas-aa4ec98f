@@ -1,0 +1,322 @@
+---
+title: MLflow Models Overview
+description: Learn about MLflow Models and the model format for packaging ML models
+---
+
+MLflow Models is a standard format for packaging machine learning models that can be used in a variety of downstream tools—for example, real-time serving through a REST API or batch inference on Apache Spark. The format defines a convention that lets you save a model in different "flavors" that can be understood by different downstream tools.
+
+## What is an MLflow Model?
+
+An MLflow Model is a directory containing arbitrary files, along with an `MLmodel` file in the root directory that defines several "flavors" that the model can be viewed in. Flavors are the key concept that makes MLflow Models powerful: they are a convention that deployment tools can use to understand the model, making it possible to write tools that work with models from any ML library.
+
+### Model Directory Structure
+
+The MLflow Model format is defined as a directory structure containing all required data, code, and configuration:
+
+```
+./model-directory/
+    ./MLmodel              # Model metadata and configuration
+    ./conda.yaml           # Conda environment specification
+    ./python_env.yaml      # Python environment specification
+    ./requirements.txt     # Pip requirements
+    ./model.pkl            # Serialized model (varies by flavor)
+    ./code/                # Code packaged with the model (optional)
+    ./data/                # Additional model data (optional)
+```
+
+## The MLmodel File
+
+The `MLmodel` file is the heart of the MLflow Model format. It's a YAML file containing metadata about the model, including:
+
+- **Flavors**: Different representations of the model
+- **Model signature**: Input and output schema
+- **Dependencies**: Python packages and versions required
+- **MLflow version**: Version used to save the model
+- **Model UUID**: Unique identifier
+- **Metadata**: Custom key-value pairs
+
+### Example MLmodel File
+
+```yaml
+artifact_path: model
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.10.12
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.3.0
+mlflow_version: 2.15.0
+model_size_bytes: 68
+model_uuid: 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d
+signature:
+  inputs: '[{"type": "double", "name": "feature_1", "required": true}, {"type":
+    "double", "name": "feature_2", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float64", "shape": [-1]}}]'
+  params: null
+utc_time_created: '2024-03-05 10:30:15.123456'
+```
+
+## Model Flavors
+
+A model flavor is a particular way of serializing and loading a model. Each MLflow Model can have multiple flavors, allowing the same model to be used in different contexts.
+
+### Common Flavor Combinations
+
+Most models are saved with at least two flavors:
+
+1. **Native flavor** (e.g., `sklearn`, `pytorch`, `tensorflow`) - Allows loading back into the original framework
+2. **`python_function` flavor** - Generic Python function interface for deployment
+
+<CodeGroup>
+```python Scikit-learn Model
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+
+# Train model
+model = RandomForestClassifier(n_estimators=100)
+model.fit(X_train, y_train)
+
+# Log model with both sklearn and pyfunc flavors
+mlflow.sklearn.log_model(
+    sk_model=model,
+    artifact_path="model",
+    signature=signature
+)
+```
+
+```python PyTorch Model
+import mlflow.pytorch
+import torch
+
+# Define and train model
+model = MyNeuralNetwork()
+# ... training code ...
+
+# Log model with both pytorch and pyfunc flavors
+mlflow.pytorch.log_model(
+    pytorch_model=model,
+    artifact_path="model",
+    signature=signature
+)
+```
+
+```python Custom PyFunc Model
+import mlflow.pyfunc
+
+class MyModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        # Custom inference logic
+        return model_input * 2
+
+# Log custom model with pyfunc flavor
+mlflow.pyfunc.log_model(
+    artifact_path="model",
+    python_model=MyModel(),
+    pip_requirements=["pandas", "numpy"]
+)
+```
+</CodeGroup>
+
+## Built-in Model Flavors
+
+MLflow provides built-in support for many popular ML frameworks:
+
+<CardGroup cols={3}>
+  <Card title="scikit-learn" icon="flask">
+    Save and load scikit-learn models
+  </Card>
+  <Card title="PyTorch" icon="fire">
+    Save and load PyTorch models
+  </Card>
+  <Card title="TensorFlow" icon="t">
+    Save and load TensorFlow models
+  </Card>
+  <Card title="XGBoost" icon="chart-line">
+    Gradient boosting models
+  </Card>
+  <Card title="LightGBM" icon="bolt">
+    Fast gradient boosting
+  </Card>
+  <Card title="Transformers" icon="robot">
+    Hugging Face transformers
+  </Card>
+  <Card title="LangChain" icon="link">
+    LLM applications and chains
+  </Card>
+  <Card title="OpenAI" icon="brain">
+    OpenAI models and embeddings
+  </Card>
+  <Card title="PyFunc" icon="python">
+    Custom Python functions
+  </Card>
+</CardGroup>
+
+## Model Information and Metadata
+
+You can retrieve information about a logged model using `get_model_info()`:
+
+```python
+import mlflow
+
+# Get model info from a run
+model_info = mlflow.models.get_model_info("runs:/abc123/model")
+
+print(f"Model UUID: {model_info.model_uuid}")
+print(f"Flavors: {list(model_info.flavors.keys())}")
+print(f"Signature: {model_info.signature}")
+print(f"Size: {model_info.model_size_bytes} bytes")
+```
+
+### Adding Custom Metadata
+
+You can add custom metadata when logging models:
+
+```python
+mlflow.sklearn.log_model(
+    sk_model=model,
+    artifact_path="model",
+    metadata={
+        "model_type": "classifier",
+        "dataset_version": "v2.1",
+        "training_date": "2024-03-05",
+        "accuracy": 0.95
+    }
+)
+```
+
+## Loading Models
+
+MLflow provides multiple ways to load models depending on your use case:
+
+### Load as Original Framework Type
+
+```python
+# Load as sklearn model
+model = mlflow.sklearn.load_model("runs:/abc123/model")
+predictions = model.predict(X_test)
+```
+
+### Load as PyFunc
+
+```python
+# Load as generic Python function
+model = mlflow.pyfunc.load_model("runs:/abc123/model")
+predictions = model.predict(X_test)
+```
+
+### Load from Different Locations
+
+```python
+# From run
+model = mlflow.pyfunc.load_model("runs:/run_id/model")
+
+# From models registry
+model = mlflow.pyfunc.load_model("models:/my-model/1")
+
+# From local path
+model = mlflow.pyfunc.load_model("/path/to/model")
+
+# From remote storage
+model = mlflow.pyfunc.load_model("s3://bucket/path/to/model")
+```
+
+## Environment Management
+
+MLflow automatically captures the model's dependencies and creates reproducible environments:
+
+### Conda Environment
+
+The `conda.yaml` file specifies the complete Conda environment:
+
+```yaml
+channels:
+- conda-forge
+dependencies:
+- python=3.10.12
+- pip<=24.0
+- pip:
+  - mlflow==2.15.0
+  - scikit-learn==1.3.0
+  - cloudpickle==2.2.1
+name: mlflow-env
+```
+
+### Python Environment
+
+The `python_env.yaml` file is used with virtualenv:
+
+```yaml
+python: 3.10.12
+build_dependencies:
+- pip==24.0
+- setuptools==68.0.0
+- wheel==0.41.0
+dependencies:
+- -r requirements.txt
+```
+
+### Requirements File
+
+The `requirements.txt` file lists pip dependencies:
+
+```
+mlflow==2.15.0
+scikit-learn==1.3.0
+cloudpickle==2.2.1
+```
+
+## Model Deployment
+
+MLflow Models can be deployed to various targets:
+
+<CardGroup cols={2}>
+  <Card title="Local REST API" icon="server">
+    Serve models via local Flask server
+  </Card>
+  <Card title="Docker Container" icon="docker">
+    Build Docker images for containerized deployment
+  </Card>
+  <Card title="Cloud Platforms" icon="cloud">
+    Deploy to AWS SageMaker, Azure ML, etc.
+  </Card>
+  <Card title="Batch Inference" icon="database">
+    Apply models to Spark DataFrames
+  </Card>
+</CardGroup>
+
+### Example: Serve via REST API
+
+```bash
+# Serve model locally
+mlflow models serve -m runs:/abc123/model -p 5000
+
+# Make predictions
+curl http://127.0.0.1:5000/invocations -H 'Content-Type: application/json' -d '{
+  "inputs": [[1.0, 2.0], [3.0, 4.0]]
+}'
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Flavors" icon="layer-group" href="/models/flavors">
+    Learn about specific model flavors
+  </Card>
+  <Card title="Custom Models" icon="code" href="/models/custom-models">
+    Create custom PyFunc models
+  </Card>
+  <Card title="Model Signatures" icon="file-signature" href="/models/signatures">
+    Define input/output schemas
+  </Card>
+  <Card title="Dependencies" icon="package" href="/models/dependencies">
+    Manage model dependencies
+  </Card>
+</CardGroup>

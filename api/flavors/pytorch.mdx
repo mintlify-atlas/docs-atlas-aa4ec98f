@@ -1,0 +1,270 @@
+---
+title: mlflow.pytorch
+description: API reference for MLflow's PyTorch flavor
+---
+
+The `mlflow.pytorch` module provides an API for logging and loading PyTorch models. This module exports PyTorch models with the following flavors:
+
+- **PyTorch (native) format** - The main flavor that can be loaded back into PyTorch
+- **mlflow.pyfunc** - Produced for use by generic pyfunc-based deployment tools and batch inference
+
+<Warning>
+Log the model with a signature to avoid inference errors. If the model is logged without a signature, the MLflow Model Server relies on the default inferred data type from NumPy, which may differ from PyTorch's expectations.
+</Warning>
+
+## Saving Models
+
+### save_model()
+
+Save a PyTorch model to a path on the local file system.
+
+```python
+mlflow.pytorch.save_model(
+    pytorch_model,
+    path,
+    conda_env=None,
+    mlflow_model=None,
+    code_paths=None,
+    pickle_module=None,
+    signature=None,
+    input_example=None,
+    extra_files=None,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    export_model=False,
+    **kwargs
+)
+```
+
+<ParamField path="pytorch_model" type="torch.nn.Module" required>
+  PyTorch model to be saved. Can be either an eager model (subclass of `torch.nn.Module`) or scripted model prepared via `torch.jit.script` or `torch.jit.trace`.
+</ParamField>
+
+<ParamField path="path" type="str" required>
+  Local path where the model is to be saved.
+</ParamField>
+
+<ParamField path="pickle_module" type="module">
+  The module that PyTorch should use to serialize the model. Passed to `torch.save()`. By default, uses `mlflow.pytorch.pickle_module`.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  Model signature describing model inputs and outputs.
+</ParamField>
+
+<ParamField path="input_example" type="np.ndarray | pd.DataFrame">
+  Example input for model testing and signature inference.
+</ParamField>
+
+<ParamField path="export_model" type="bool" default="False">
+  Save the model via `torch.export.save` as a traced graph. This format addresses the security vulnerability of CloudPickle format. Requires `torch >= 2.4` and `input_example` must be provided.
+</ParamField>
+
+### log_model()
+
+Log a PyTorch model as an MLflow artifact for the current run.
+
+```python
+mlflow.pytorch.log_model(
+    pytorch_model,
+    artifact_path=None,
+    conda_env=None,
+    code_paths=None,
+    pickle_module=None,
+    registered_model_name=None,
+    signature=None,
+    input_example=None,
+    await_registration_for=300,
+    extra_files=None,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    name=None,
+    params=None,
+    tags=None,
+    model_type=None,
+    step=0,
+    model_id=None,
+    export_model=False,
+    **kwargs
+)
+```
+
+<ParamField path="pytorch_model" type="torch.nn.Module" required>
+  PyTorch model to be logged.
+</ParamField>
+
+<ParamField path="name" type="str">
+  Name of the logged model.
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under this registered model name.
+</ParamField>
+
+**Returns:** `ModelInfo` instance containing metadata of the logged model.
+
+## Loading Models
+
+### load_model()
+
+Load a PyTorch model from a local file or a run.
+
+```python
+mlflow.pytorch.load_model(
+    model_uri,
+    dst_path=None,
+    **kwargs
+)
+```
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes:
+  - `/Users/me/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+  - `models:/<model_name>/<model_version>`
+</ParamField>
+
+<ParamField path="kwargs" type="dict">
+  Additional kwargs to pass to `torch.load` method.
+</ParamField>
+
+**Returns:** A PyTorch model.
+
+## State Dict Functions
+
+### log_state_dict()
+
+Log a state_dict as an MLflow artifact for the current run.
+
+```python
+mlflow.pytorch.log_state_dict(
+    state_dict,
+    artifact_path,
+    **kwargs
+)
+```
+
+<Warning>
+This function only logs a state_dict as an artifact and doesn't generate an MLflow Model.
+</Warning>
+
+### load_state_dict()
+
+Load a state_dict from a local file or a run.
+
+```python
+mlflow.pytorch.load_state_dict(
+    state_dict_uri,
+    **kwargs
+)
+```
+
+**Returns:** A state_dict.
+
+## Autologging
+
+### autolog()
+
+Enables autologging from PyTorch Lightning to MLflow.
+
+```python
+mlflow.pytorch.autolog(
+    log_every_n_epoch=1,
+    log_every_n_step=None,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    registered_model_name=None,
+    extra_tags=None,
+    checkpoint=True,
+    checkpoint_monitor="val_loss",
+    checkpoint_mode="min",
+    checkpoint_save_best_only=True,
+    checkpoint_save_weights_only=False,
+    checkpoint_save_freq="epoch",
+    log_model_signatures=True
+)
+```
+
+<Note>
+Full autologging is only supported for PyTorch Lightning models (models that subclass `pytorch_lightning.LightningModule`).
+</Note>
+
+<ParamField path="log_every_n_epoch" type="int" default="1">
+  Logs metrics once every n epochs.
+</ParamField>
+
+<ParamField path="checkpoint" type="bool" default="True">
+  Enable automatic model checkpointing.
+</ParamField>
+
+<ParamField path="checkpoint_monitor" type="str" default="val_loss">
+  Metric name to monitor for checkpoint saving.
+</ParamField>
+
+### load_checkpoint()
+
+Load a checkpointed PyTorch Lightning model.
+
+```python
+mlflow.pytorch.load_checkpoint(
+    model_class,
+    run_id=None,
+    epoch=None,
+    global_step=None,
+    kwargs=None
+)
+```
+
+<ParamField path="model_class" type="class">
+  The class of the training model (must inherit from `pytorch_lightning.LightningModule`).
+</ParamField>
+
+<ParamField path="epoch" type="int">
+  The epoch of the checkpoint to load.
+</ParamField>
+
+<ParamField path="global_step" type="int">
+  The global step of the checkpoint to load.
+</ParamField>
+
+**Returns:** Instance of a PyTorch Lightning model restored from the checkpoint.
+
+## Example
+
+```python
+import torch
+import mlflow
+import mlflow.pytorch
+from mlflow.models import infer_signature
+
+# Define model
+model = torch.nn.Linear(1, 1)
+criterion = torch.nn.MSELoss()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
+
+# Create training data
+X = torch.arange(1.0, 26.0).reshape(-1, 1)
+y = X * 2
+
+# Training loop
+for epoch in range(250):
+    y_pred = model(X)
+    loss = criterion(y_pred, y)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+# Create signature
+signature = infer_signature(X.numpy(), model(X).detach().numpy())
+
+# Log the model
+with mlflow.start_run():
+    mlflow.pytorch.log_model(model, name="model", signature=signature)
+```

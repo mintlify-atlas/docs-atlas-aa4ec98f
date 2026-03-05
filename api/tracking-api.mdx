@@ -1,0 +1,577 @@
+---
+title: Tracking API
+description: Core MLflow tracking API for logging parameters, metrics, and artifacts
+---
+
+The MLflow Tracking API provides a fluent interface for managing experiments and runs. These functions are available at the top-level `mlflow` module and automatically manage the active run state.
+
+## Starting and Ending Runs
+
+### start_run
+
+<ParamField path="run_id" type="str | None" default="None">
+  If specified, resume the run with this UUID. The run's status is set to RUNNING.
+</ParamField>
+
+<ParamField path="experiment_id" type="str | None" default="None">
+  ID of the experiment under which to create the run. If unspecified, uses the active experiment or default.
+</ParamField>
+
+<ParamField path="run_name" type="str | None" default="None">
+  Name of the new run. If not specified, a random name is generated.
+</ParamField>
+
+<ParamField path="nested" type="bool" default="False">
+  Controls whether the run is nested in a parent run. Set to `True` to create a nested run.
+</ParamField>
+
+<ParamField path="parent_run_id" type="str | None" default="None">
+  If specified, the run will be nested under this parent run UUID.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Dictionary of string keys and values to set as tags on the run.
+</ParamField>
+
+<ParamField path="description" type="str | None" default="None">
+  Optional description that populates the run's description box.
+</ParamField>
+
+<ParamField path="log_system_metrics" type="bool | None" default="None">
+  If True, system metrics (CPU/GPU utilization) will be logged. If None, checks `MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING` environment variable.
+</ParamField>
+
+<ResponseField name="return" type="ActiveRun">
+  An ActiveRun object that acts as a context manager wrapping the run's state.
+</ResponseField>
+
+```python
+import mlflow
+
+# Start a run with context manager
+with mlflow.start_run() as run:
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_metric("accuracy", 0.95)
+    print(f"Run ID: {run.info.run_id}")
+
+# Create nested runs
+with mlflow.start_run(run_name="PARENT_RUN") as parent_run:
+    mlflow.log_param("parent", "yes")
+    
+    with mlflow.start_run(run_name="CHILD_RUN", nested=True) as child_run:
+        mlflow.log_param("child", "yes")
+```
+
+### end_run
+
+<ParamField path="status" type="str" default="FINISHED">
+  Status to set for the run. Can be "FINISHED", "FAILED", or "KILLED".
+</ParamField>
+
+Ends the currently active run, if any. If a run is not active, this function is a no-op.
+
+```python
+import mlflow
+from mlflow.entities import RunStatus
+
+mlflow.start_run()
+mlflow.log_param("model_type", "classifier")
+mlflow.end_run(RunStatus.to_string(RunStatus.FINISHED))
+```
+
+## Logging Parameters
+
+### log_param
+
+<ParamField path="key" type="str" required>
+  Parameter name. May contain alphanumerics, underscores, dashes, periods, spaces, and slashes. Maximum length: 250 characters.
+</ParamField>
+
+<ParamField path="value" type="Any" required>
+  Parameter value. Will be string-ified if not already a string. Maximum length: 6000 characters.
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously. If None, reads from `MLFLOW_ENABLE_ASYNC_LOGGING`.
+</ParamField>
+
+<ResponseField name="return" type="Any">
+  When synchronous=True, returns the parameter value. When synchronous=False, returns a RunOperations future.
+</ResponseField>
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log a single parameter
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_param("max_depth", 5)
+    mlflow.log_param("model_type", "random_forest")
+```
+
+### log_params
+
+<ParamField path="params" type="dict[str, Any]" required>
+  Dictionary of parameter name to value mappings.
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously.
+</ParamField>
+
+Log multiple parameters at once.
+
+```python
+import mlflow
+
+params = {
+    "learning_rate": 0.01,
+    "batch_size": 32,
+    "epochs": 10,
+    "optimizer": "adam"
+}
+
+with mlflow.start_run():
+    mlflow.log_params(params)
+```
+
+## Logging Metrics
+
+### log_metric
+
+<ParamField path="key" type="str" required>
+  Metric name. May contain alphanumerics, underscores, dashes, periods, spaces, and slashes.
+</ParamField>
+
+<ParamField path="value" type="float" required>
+  Metric value. Note that some special values like +/- Infinity may be replaced by the store.
+</ParamField>
+
+<ParamField path="step" type="int | None" default="None">
+  Metric step. Defaults to zero if unspecified.
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously.
+</ParamField>
+
+<ParamField path="timestamp" type="int | None" default="None">
+  Time when this metric was calculated. Defaults to current system time.
+</ParamField>
+
+<ParamField path="run_id" type="str | None" default="None">
+  If specified, log to this run instead of the active run.
+</ParamField>
+
+<ParamField path="model_id" type="str | None" default="None">
+  ID of the model associated with the metric.
+</ParamField>
+
+<ParamField path="dataset" type="Dataset | None" default="None">
+  Dataset associated with the metric.
+</ParamField>
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log metrics over multiple steps
+    for epoch in range(10):
+        mlflow.log_metric("train_loss", 0.5 / (epoch + 1), step=epoch)
+        mlflow.log_metric("val_loss", 0.4 / (epoch + 1), step=epoch)
+        mlflow.log_metric("accuracy", 0.8 + (epoch * 0.02), step=epoch)
+```
+
+### log_metrics
+
+<ParamField path="metrics" type="dict[str, float]" required>
+  Dictionary of metric name to value mappings.
+</ParamField>
+
+<ParamField path="step" type="int | None" default="None">
+  Metric step for all metrics in the dictionary.
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously.
+</ParamField>
+
+Log multiple metrics at once.
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    metrics = {
+        "accuracy": 0.95,
+        "precision": 0.92,
+        "recall": 0.89,
+        "f1_score": 0.90
+    }
+    mlflow.log_metrics(metrics)
+```
+
+## Logging Artifacts
+
+### log_artifact
+
+<ParamField path="local_path" type="str" required>
+  Path to the file to log as an artifact.
+</ParamField>
+
+<ParamField path="artifact_path" type="str | None" default="None">
+  If provided, the artifact is logged to a subdirectory of the run's artifact directory.
+</ParamField>
+
+```python
+import mlflow
+import json
+
+with mlflow.start_run():
+    # Save and log a JSON config file
+    config = {"model": "classifier", "version": "1.0"}
+    with open("config.json", "w") as f:
+        json.dump(config, f)
+    
+    mlflow.log_artifact("config.json", artifact_path="configs")
+```
+
+### log_artifacts
+
+<ParamField path="local_dir" type="str" required>
+  Path to the directory of files to log.
+</ParamField>
+
+<ParamField path="artifact_path" type="str | None" default="None">
+  If provided, artifacts are logged to a subdirectory of the run's artifact directory.
+</ParamField>
+
+Log all files in a directory as artifacts.
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log all files in the "outputs" directory
+    mlflow.log_artifacts("outputs", artifact_path="results")
+```
+
+### log_dict
+
+<ParamField path="dictionary" type="dict" required>
+  Dictionary to log as a JSON or YAML artifact.
+</ParamField>
+
+<ParamField path="artifact_file" type="str" required>
+  Name of the artifact file (must end with .json, .yml, or .yaml).
+</ParamField>
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    hyperparameters = {
+        "learning_rate": 0.01,
+        "layers": [128, 64, 32],
+        "activation": "relu"
+    }
+    mlflow.log_dict(hyperparameters, "hyperparameters.json")
+```
+
+### log_figure
+
+<ParamField path="figure" type="matplotlib.figure.Figure | plotly.graph_objects.Figure" required>
+  Matplotlib or Plotly figure to log.
+</ParamField>
+
+<ParamField path="artifact_file" type="str" required>
+  Name of the artifact file.
+</ParamField>
+
+```python
+import mlflow
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    # Create and log a matplotlib figure
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3], [4, 5, 6])
+    ax.set_title("Training Progress")
+    
+    mlflow.log_figure(fig, "training_plot.png")
+```
+
+### log_image
+
+<ParamField path="image" type="numpy.ndarray | PIL.Image.Image | mlflow.Image" required>
+  Image to log. Can be a numpy array, PIL Image, or mlflow.Image object.
+</ParamField>
+
+<ParamField path="artifact_file" type="str | None" default="None">
+  Name of the image artifact file.
+</ParamField>
+
+<ParamField path="key" type="str | None" default="None">
+  Key to group multiple images under.
+</ParamField>
+
+```python
+import mlflow
+import numpy as np
+from PIL import Image
+
+with mlflow.start_run():
+    # Log a numpy array as an image
+    img_array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+    mlflow.log_image(img_array, "random_image.png")
+    
+    # Log a PIL image
+    pil_img = Image.fromarray(img_array)
+    mlflow.log_image(pil_img, "pil_image.png")
+```
+
+### log_text
+
+<ParamField path="text" type="str" required>
+  Text content to log.
+</ParamField>
+
+<ParamField path="artifact_file" type="str" required>
+  Name of the text artifact file.
+</ParamField>
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log training notes
+    notes = """
+    Model Training Notes:
+    - Used Adam optimizer
+    - Early stopping at epoch 45
+    - Best validation accuracy: 0.95
+    """
+    mlflow.log_text(notes, "training_notes.txt")
+```
+
+## Experiment Management
+
+### set_experiment
+
+<ParamField path="experiment_name" type="str | None" default="None">
+  Case-sensitive name of the experiment to activate. Creates if it doesn't exist.
+</ParamField>
+
+<ParamField path="experiment_id" type="str | None" default="None">
+  ID of the experiment to activate. Must exist or an exception is raised.
+</ParamField>
+
+<ResponseField name="return" type="Experiment">
+  An Experiment object representing the active experiment.
+</ResponseField>
+
+```python
+import mlflow
+
+# Set experiment by name (creates if doesn't exist)
+experiment = mlflow.set_experiment("my-experiment")
+print(f"Experiment ID: {experiment.experiment_id}")
+print(f"Artifact Location: {experiment.artifact_location}")
+
+with mlflow.start_run():
+    mlflow.log_param("param1", 5)
+```
+
+### create_experiment
+
+<ParamField path="name" type="str" required>
+  Name for the experiment. Must be unique.
+</ParamField>
+
+<ParamField path="artifact_location" type="str | None" default="None">
+  Location to store run artifacts. If not provided, uses the default artifact store.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Dictionary of tags to set on the experiment.
+</ParamField>
+
+<ResponseField name="return" type="str">
+  The experiment ID as a string.
+</ResponseField>
+
+```python
+import mlflow
+
+# Create a new experiment
+exp_id = mlflow.create_experiment(
+    "my-new-experiment",
+    tags={"team": "ml-platform", "version": "v1"}
+)
+print(f"Created experiment ID: {exp_id}")
+```
+
+### get_experiment
+
+<ParamField path="experiment_id" type="str" required>
+  ID of the experiment to retrieve.
+</ParamField>
+
+<ResponseField name="return" type="Experiment">
+  Experiment object containing metadata.
+</ResponseField>
+
+```python
+import mlflow
+
+experiment = mlflow.get_experiment("0")
+print(f"Name: {experiment.name}")
+print(f"Lifecycle Stage: {experiment.lifecycle_stage}")
+print(f"Tags: {experiment.tags}")
+```
+
+### search_experiments
+
+<ParamField path="view_type" type="int" default="1">
+  One of `ViewType.ACTIVE_ONLY`, `ViewType.DELETED_ONLY`, or `ViewType.ALL`.
+</ParamField>
+
+<ParamField path="max_results" type="int" default="1000">
+  Maximum number of experiments to return.
+</ParamField>
+
+<ParamField path="filter_string" type="str | None" default="None">
+  Filter query string to search experiments.
+</ParamField>
+
+<ParamField path="order_by" type="list[str] | None" default="None">
+  List of order_by clauses.
+</ParamField>
+
+<ResponseField name="return" type="list[Experiment]">
+  List of Experiment objects matching the search criteria.
+</ResponseField>
+
+```python
+import mlflow
+
+# Search for experiments with a specific tag
+experiments = mlflow.search_experiments(
+    filter_string="tags.team = 'ml-platform'"
+)
+
+for exp in experiments:
+    print(f"{exp.name}: {exp.experiment_id}")
+```
+
+## Tags
+
+### set_tag
+
+<ParamField path="key" type="str" required>
+  Tag name.
+</ParamField>
+
+<ParamField path="value" type="Any" required>
+  Tag value (will be string-ified).
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously.
+</ParamField>
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    mlflow.set_tag("model_type", "classifier")
+    mlflow.set_tag("framework", "scikit-learn")
+    mlflow.set_tag("version", "1.0.0")
+```
+
+### set_tags
+
+<ParamField path="tags" type="dict[str, Any]" required>
+  Dictionary of tag name to value mappings.
+</ParamField>
+
+<ParamField path="synchronous" type="bool | None" default="None">
+  If True, blocks until logged. If False, logs asynchronously.
+</ParamField>
+
+```python
+import mlflow
+
+tags = {
+    "model_type": "classifier",
+    "framework": "pytorch",
+    "team": "ml-platform"
+}
+
+with mlflow.start_run():
+    mlflow.set_tags(tags)
+```
+
+## Retrieving Runs
+
+### get_run
+
+<ParamField path="run_id" type="str" required>
+  Unique identifier for the run.
+</ParamField>
+
+<ResponseField name="return" type="Run">
+  A Run object containing run metadata, parameters, metrics, and tags.
+</ResponseField>
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    mlflow.log_param("alpha", 0.5)
+    run_id = run.info.run_id
+
+# Retrieve the run
+retrieved_run = mlflow.get_run(run_id)
+print(f"Status: {retrieved_run.info.status}")
+print(f"Parameters: {retrieved_run.data.params}")
+```
+
+### search_runs
+
+<ParamField path="experiment_ids" type="list[str] | None" default="None">
+  List of experiment IDs to search. If None, searches all experiments.
+</ParamField>
+
+<ParamField path="filter_string" type="str" default="''">
+  Filter query string.
+</ParamField>
+
+<ParamField path="run_view_type" type="int" default="1">
+  One of `ViewType.ACTIVE_ONLY`, `ViewType.DELETED_ONLY`, or `ViewType.ALL`.
+</ParamField>
+
+<ParamField path="max_results" type="int" default="1000">
+  Maximum number of runs to return.
+</ParamField>
+
+<ParamField path="order_by" type="list[str] | None" default="None">
+  List of order_by clauses.
+</ParamField>
+
+<ResponseField name="return" type="pandas.DataFrame">
+  DataFrame of runs with columns for run metadata, parameters, metrics, and tags.
+</ResponseField>
+
+```python
+import mlflow
+
+# Search runs with high accuracy
+runs = mlflow.search_runs(
+    experiment_ids=["0"],
+    filter_string="metrics.accuracy > 0.9",
+    order_by=["metrics.accuracy DESC"]
+)
+
+print(runs[["run_id", "metrics.accuracy", "params.learning_rate"]])
+```

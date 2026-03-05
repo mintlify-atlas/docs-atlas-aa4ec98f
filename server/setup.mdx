@@ -1,0 +1,352 @@
+---
+title: MLflow Server Setup
+description: Learn how to set up and run the MLflow tracking server
+---
+
+## Overview
+
+The MLflow tracking server provides a centralized repository for storing experiment data, metrics, parameters, and artifacts. It exposes a REST API that MLflow clients use to log and retrieve experiment data.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install MLflow">
+    Install MLflow using pip:
+
+    ```bash
+    pip install mlflow
+    ```
+
+    <Note>
+    MLflow requires Python 3.10 or later. Verify with `python --version`
+    </Note>
+  </Step>
+
+  <Step title="Start the server">
+    Launch the MLflow server with default settings:
+
+    ```bash
+    mlflow server
+    ```
+
+    The server will start on `http://localhost:5000` by default.
+
+    <Info>
+    The `mlflow ui` command is an alias for `mlflow server` and can be used interchangeably.
+    </Info>
+  </Step>
+
+  <Step title="Verify the server is running">
+    Check the health endpoint:
+
+    ```bash
+    curl http://localhost:5000/health
+    ```
+
+    You should receive an `OK` response.
+  </Step>
+</Steps>
+
+## Server Options
+
+### Host and Port
+
+By default, the server only accepts connections from localhost. To allow external connections:
+
+```bash
+mlflow server --host 0.0.0.0 --port 8080
+```
+
+<Warning>
+When exposing the server on `0.0.0.0`, always configure `--allowed-hosts` and `--cors-allowed-origins` for security.
+</Warning>
+
+### Storage Configuration
+
+Configure where the server stores data:
+
+<CodeGroup>
+```bash SQLite Backend
+mlflow server \
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./mlruns
+```
+
+```bash PostgreSQL Backend
+mlflow server \
+  --backend-store-uri postgresql://user:password@localhost/mlflow \
+  --default-artifact-root s3://my-bucket/mlflow
+```
+
+```bash MySQL Backend
+mlflow server \
+  --backend-store-uri mysql+pymysql://user:password@localhost/mlflow \
+  --default-artifact-root gs://my-bucket/mlflow
+```
+
+```bash File-based Backend
+mlflow server \
+  --backend-store-uri file:///path/to/mlruns \
+  --default-artifact-root /path/to/artifacts
+```
+</CodeGroup>
+
+### Workers Configuration
+
+Control the number of worker processes:
+
+```bash
+mlflow server --workers 8
+```
+
+<Note>
+The default is 4 workers. Increase this for production deployments with high traffic.
+</Note>
+
+## Server Modes
+
+### Artifacts-Only Mode
+
+Run the server as an artifact proxy only (no tracking functionality):
+
+```bash
+mlflow server \
+  --artifacts-only \
+  --artifacts-destination s3://my-bucket/artifacts \
+  --host 0.0.0.0
+```
+
+### Artifact Serving
+
+Enable artifact proxying through the tracking server:
+
+```bash
+mlflow server \
+  --serve-artifacts \
+  --artifacts-destination s3://my-bucket/artifacts
+```
+
+## Advanced Options
+
+### Static Prefix
+
+Host the UI at a custom path (useful for reverse proxies):
+
+```bash
+mlflow server --static-prefix /mlflow
+```
+
+The UI will be accessible at `http://localhost:5000/mlflow`.
+
+### Development Mode
+
+Run the server in development mode with auto-reload:
+
+```bash
+mlflow server --dev
+```
+
+<Warning>
+Development mode should only be used for local development. It is not supported on Windows.
+</Warning>
+
+### Using Gunicorn (Alternative)
+
+Run with Gunicorn instead of Uvicorn:
+
+```bash
+mlflow server --gunicorn-opts "--timeout 120 --log-level debug"
+```
+
+<Note>
+Gunicorn is not supported on Windows. Uvicorn is the recommended server for all platforms.
+</Note>
+
+### Using Waitress (Windows Alternative)
+
+For Windows systems, use Waitress:
+
+```bash
+mlflow server --waitress-opts "--threads=8"
+```
+
+## Environment Variables
+
+Alternatively, configure the server using environment variables:
+
+<ParamField path="MLFLOW_BACKEND_STORE_URI" type="string">
+  Backend store URI (equivalent to `--backend-store-uri`)
+</ParamField>
+
+<ParamField path="MLFLOW_DEFAULT_ARTIFACT_ROOT" type="string">
+  Default artifact root location (equivalent to `--default-artifact-root`)
+</ParamField>
+
+<ParamField path="MLFLOW_REGISTRY_STORE_URI" type="string">
+  Model registry store URI (equivalent to `--registry-store-uri`)
+</ParamField>
+
+<ParamField path="MLFLOW_SERVE_ARTIFACTS" type="boolean">
+  Enable artifact serving (equivalent to `--serve-artifacts`)
+</ParamField>
+
+<ParamField path="MLFLOW_ARTIFACTS_DESTINATION" type="string">
+  Artifact destination for proxied storage (equivalent to `--artifacts-destination`)
+</ParamField>
+
+### Example with Environment Variables
+
+```bash
+export MLFLOW_BACKEND_STORE_URI="postgresql://user:password@localhost/mlflow"
+export MLFLOW_DEFAULT_ARTIFACT_ROOT="s3://my-bucket/mlflow"
+mlflow server --host 0.0.0.0
+```
+
+## Using an Environment File
+
+Load environment variables from a dotenv file:
+
+```bash
+mlflow server --env-file .env
+```
+
+**Example `.env` file:**
+
+```bash .env
+MLFLOW_BACKEND_STORE_URI=sqlite:///mlflow.db
+MLFLOW_DEFAULT_ARTIFACT_ROOT=./artifacts
+MLFLOW_TRACKING_USERNAME=admin
+MLFLOW_TRACKING_PASSWORD=password
+```
+
+<Note>
+Variables already set in the environment take precedence over values in the env file.
+</Note>
+
+## Common Deployment Scenarios
+
+### Local Development
+
+```bash
+mlflow server
+```
+
+- Stores data in `./mlruns` directory
+- Accessible only from localhost
+- Perfect for single-user experimentation
+
+### Team Development Server
+
+```bash
+mlflow server \
+  --host 0.0.0.0 \
+  --backend-store-uri postgresql://user:password@db-server/mlflow \
+  --default-artifact-root s3://team-bucket/mlflow \
+  --workers 8
+```
+
+### Production Server with High Availability
+
+```bash
+mlflow server \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --backend-store-uri postgresql://user:password@db-server/mlflow \
+  --registry-store-uri postgresql://user:password@db-server/mlflow \
+  --default-artifact-root s3://prod-bucket/mlflow \
+  --serve-artifacts \
+  --workers 16 \
+  --allowed-hosts "mlflow.company.com" \
+  --cors-allowed-origins "https://app.company.com"
+```
+
+## Monitoring
+
+### Health Check
+
+The server provides a health endpoint:
+
+```bash
+curl http://localhost:5000/health
+```
+
+### Version Check
+
+Check the MLflow server version:
+
+```bash
+curl http://localhost:5000/version
+```
+
+### Prometheus Metrics
+
+Expose Prometheus metrics:
+
+```bash
+mlflow server --expose-prometheus /path/to/metrics
+```
+
+Metrics will be available at `http://localhost:5000/metrics`.
+
+## Troubleshooting
+
+### Server Won't Start
+
+1. **Check if the port is already in use:**
+   ```bash
+   lsof -i :5000
+   ```
+
+2. **Try a different port:**
+   ```bash
+   mlflow server --port 5001
+   ```
+
+### Database Connection Issues
+
+1. **Verify database connectivity:**
+   ```bash
+   # For PostgreSQL
+   psql -h localhost -U user -d mlflow
+   
+   # For MySQL
+   mysql -h localhost -u user -p mlflow
+   ```
+
+2. **Check the connection string format:**
+   - PostgreSQL: `postgresql://user:password@host:port/database`
+   - MySQL: `mysql+pymysql://user:password@host:port/database`
+   - SQLite: `sqlite:///path/to/database.db`
+
+### UI Not Loading
+
+1. **Check if static files exist:**
+   ```bash
+   ls -la $(python -c "import mlflow; import os; print(os.path.join(os.path.dirname(mlflow.__file__), 'server', 'js', 'build'))")
+   ```
+
+2. **Reinstall MLflow if files are missing:**
+   ```bash
+   pip uninstall mlflow
+   pip install mlflow
+   ```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/server/configuration">
+    Learn about advanced server configuration options
+  </Card>
+  
+  <Card title="Authentication" icon="lock" href="/server/authentication">
+    Set up authentication and user management
+  </Card>
+  
+  <Card title="Database Setup" icon="database" href="/server/database">
+    Configure backend databases for production
+  </Card>
+  
+  <Card title="Security" icon="shield" href="https://mlflow.org/docs/latest/tracking/server-security.html">
+    Secure your MLflow server deployment
+  </Card>
+</CardGroup>

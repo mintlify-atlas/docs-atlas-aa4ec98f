@@ -1,0 +1,464 @@
+---
+title: Model API
+description: MLflow Model logging and loading functions for model persistence
+---
+
+The MLflow Model API provides functions for saving and loading machine learning models in various formats. Models can be logged during training and loaded later for inference.
+
+## Logging Models
+
+### mlflow.pyfunc.log_model
+
+<ParamField path="artifact_path" type="str | None" default="None">
+  **Deprecated.** Use `name` instead. Path within the run's artifact directory.
+</ParamField>
+
+<ParamField path="name" type="str | None" default="None">
+  Name of the logged model. This will be used as the artifact path.
+</ParamField>
+
+<ParamField path="python_model" type="PythonModel | callable | str | None" default="None">
+  A PythonModel instance, a callable object, or a file path to a PythonModel. This defines the model's inference logic.
+</ParamField>
+
+<ParamField path="artifacts" type="dict[str, str] | None" default="None">
+  Dictionary of artifact name to URI mappings. Remote URIs are resolved to local paths and made available to the model.
+</ParamField>
+
+<ParamField path="conda_env" type="str | dict | None" default="None">
+  Path to a Conda environment YAML file or a dictionary specification of the Conda environment.
+</ParamField>
+
+<ParamField path="code_paths" type="list[str] | None" default="None">
+  List of local filesystem paths to Python files or directories to include with the model.
+</ParamField>
+
+<ParamField path="registered_model_name" type="str | None" default="None">
+  If provided, creates a model version under this registered model name.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature | None" default="None">
+  Model signature describing inputs and outputs.
+</ParamField>
+
+<ParamField path="input_example" type="Any | None" default="None">
+  Example input for the model, used for documentation and validation.
+</ParamField>
+
+<ParamField path="pip_requirements" type="str | list[str] | None" default="None">
+  Path to a requirements file or list of pip package specifications.
+</ParamField>
+
+<ParamField path="extra_pip_requirements" type="str | list[str] | None" default="None">
+  Additional pip requirements beyond those inferred automatically.
+</ParamField>
+
+<ParamField path="metadata" type="dict[str, Any] | None" default="None">
+  Custom metadata dictionary to include with the model.
+</ParamField>
+
+<ParamField path="model_config" type="dict[str, Any] | None" default="None">
+  Configuration for the model, accessible in the PythonModel context.
+</ParamField>
+
+<ResponseField name="return" type="ModelInfo">
+  ModelInfo object containing metadata about the logged model.
+</ResponseField>
+
+Log a custom Python model with MLflow.
+
+```python
+import mlflow
+from typing import List
+
+# Define a custom model
+class MyModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input: List[str], params=None) -> List[str]:
+        return [i.upper() for i in model_input]
+
+with mlflow.start_run():
+    # Log the model
+    model_info = mlflow.pyfunc.log_model(
+        name="text_transformer",
+        python_model=MyModel(),
+        input_example=["hello", "world"]
+    )
+    
+    print(f"Model URI: {model_info.model_uri}")
+```
+
+### Functional Model Example
+
+```python
+import mlflow
+from typing import List
+
+def transform_text(model_input: List[str]) -> List[str]:
+    """Transform text to uppercase."""
+    return [text.upper() for text in model_input]
+
+with mlflow.start_run():
+    model_info = mlflow.pyfunc.log_model(
+        name="functional_model",
+        python_model=transform_text,
+        input_example=["test"]
+    )
+```
+
+### Model with Artifacts
+
+```python
+import mlflow
+import json
+import os
+
+class ModelWithConfig(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        # Access artifacts during model loading
+        with open(context.artifacts["config"], "r") as f:
+            self.config = json.load(f)
+    
+    def predict(self, context, model_input, params=None):
+        # Use config in predictions
+        threshold = self.config.get("threshold", 0.5)
+        return [x > threshold for x in model_input]
+
+# Create a config file
+config = {"threshold": 0.7, "version": "1.0"}
+with open("config.json", "w") as f:
+    json.dump(config, f)
+
+with mlflow.start_run():
+    model_info = mlflow.pyfunc.log_model(
+        name="model_with_config",
+        python_model=ModelWithConfig(),
+        artifacts={"config": "config.json"},
+        input_example=[0.6, 0.8, 0.3]
+    )
+```
+
+## Loading Models
+
+### mlflow.pyfunc.load_model
+
+<ParamField path="model_uri" type="str" required>
+  URI of the MLflow model to load. Supports various formats:
+  - Local path: `/Users/me/path/to/model`
+  - Relative path: `relative/path/to/model`
+  - S3: `s3://my_bucket/path/to/model`
+  - Runs: `runs:/<run_id>/model`
+  - Models: `models:/<model_name>/<version>`
+  - Models with stage: `models:/<model_name>/<stage>`
+</ParamField>
+
+<ParamField path="suppress_warnings" type="bool" default="False">
+  If True, suppresses non-fatal warning messages during model loading.
+</ParamField>
+
+<ParamField path="dst_path" type="str | None" default="None">
+  Local filesystem path to download the model artifact. Directory must exist.
+</ParamField>
+
+<ParamField path="model_config" type="str | dict | None" default="None">
+  Model configuration as a file path or dictionary. Available in PythonModel context.
+</ParamField>
+
+<ResponseField name="return" type="PyFuncModel">
+  Loaded PyFuncModel ready for inference.
+</ResponseField>
+
+```python
+import mlflow
+
+# Load from run
+model = mlflow.pyfunc.load_model("runs:/abc123/model")
+predictions = model.predict(["input1", "input2"])
+
+# Load from model registry
+model = mlflow.pyfunc.load_model("models:/my-model/1")
+predictions = model.predict(data)
+
+# Load with custom config
+config = {"threshold": 0.8}
+model = mlflow.pyfunc.load_model(
+    "runs:/abc123/model",
+    model_config=config
+)
+```
+
+## Model Registry
+
+### register_model
+
+<ParamField path="model_uri" type="str" required>
+  URI of the model to register (e.g., `runs:/<run_id>/model`).
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Name of the registered model. Creates if it doesn't exist.
+</ParamField>
+
+<ParamField path="await_registration_for" type="int" default="300">
+  Seconds to wait for model version creation. Set to 0 or None to skip waiting.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any] | None" default="None">
+  Tags to set on the model version.
+</ParamField>
+
+<ResponseField name="return" type="ModelVersion">
+  ModelVersion object representing the registered model version.
+</ResponseField>
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    model_info = mlflow.pyfunc.log_model(
+        name="my_model",
+        python_model=MyModel()
+    )
+    
+    # Register the model
+    model_version = mlflow.register_model(
+        model_uri=model_info.model_uri,
+        name="production-model",
+        tags={"stage": "staging"}
+    )
+    
+    print(f"Model version: {model_version.version}")
+```
+
+## Flavor-Specific APIs
+
+MLflow provides specialized APIs for popular ML frameworks:
+
+### mlflow.sklearn.log_model
+
+Log scikit-learn models with automatic dependency inference.
+
+```python
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+
+X, y = load_iris(return_X_y=True)
+clf = RandomForestClassifier()
+clf.fit(X, y)
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        clf,
+        "model",
+        input_example=X[:5]
+    )
+```
+
+### mlflow.pytorch.log_model
+
+Log PyTorch models with automatic environment capture.
+
+```python
+import mlflow.pytorch
+import torch
+import torch.nn as nn
+
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 1)
+    
+    def forward(self, x):
+        return self.linear(x)
+
+model = SimpleModel()
+
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        model,
+        "model",
+        input_example=torch.randn(1, 10)
+    )
+```
+
+### mlflow.tensorflow.log_model
+
+Log TensorFlow/Keras models.
+
+```python
+import mlflow.tensorflow
+import tensorflow as tf
+
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dense(10, activation='softmax')
+])
+
+with mlflow.start_run():
+    mlflow.tensorflow.log_model(
+        model,
+        "model",
+        input_example=tf.random.normal((1, 20))
+    )
+```
+
+### mlflow.transformers.log_model
+
+Log Hugging Face Transformers models.
+
+```python
+import mlflow.transformers
+from transformers import pipeline
+
+sentiment_pipeline = pipeline(
+    "sentiment-analysis",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=sentiment_pipeline,
+        artifact_path="sentiment_model",
+        input_example="This is a test sentence"
+    )
+```
+
+## Model Signatures
+
+### infer_signature
+
+<ParamField path="model_input" type="Any" required>
+  Example model input (e.g., training data without target).
+</ParamField>
+
+<ParamField path="model_output" type="Any | None" default="None">
+  Example model output (e.g., predictions).
+</ParamField>
+
+<ParamField path="params" type="dict | None" default="None">
+  Example inference parameters.
+</ParamField>
+
+<ResponseField name="return" type="ModelSignature">
+  Inferred model signature.
+</ResponseField>
+
+```python
+import mlflow
+from mlflow.models import infer_signature
+import pandas as pd
+
+# Prepare data
+train_data = pd.DataFrame({
+    "feature1": [1, 2, 3],
+    "feature2": [4, 5, 6]
+})
+
+# Get predictions
+predictions = model.predict(train_data)
+
+# Infer signature
+signature = infer_signature(train_data, predictions)
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        signature=signature
+    )
+```
+
+### ModelSignature
+
+Manually create model signatures for precise control.
+
+```python
+from mlflow.models import ModelSignature
+from mlflow.types import Schema, ColSpec
+
+input_schema = Schema([
+    ColSpec("double", "feature1"),
+    ColSpec("double", "feature2"),
+    ColSpec("string", "category")
+])
+
+output_schema = Schema([
+    ColSpec("double", "prediction")
+])
+
+signature = ModelSignature(
+    inputs=input_schema,
+    outputs=output_schema
+)
+```
+
+## Model Utilities
+
+### get_model_info
+
+<ParamField path="model_uri" type="str" required>
+  URI of the model.
+</ParamField>
+
+<ResponseField name="return" type="Model">
+  Model metadata object.
+</ResponseField>
+
+```python
+import mlflow
+
+model_info = mlflow.models.get_model_info("runs:/abc123/model")
+print(f"Flavors: {list(model_info.flavors.keys())}")
+print(f"Signature: {model_info.signature}")
+print(f"Model UUID: {model_info.model_uuid}")
+```
+
+### evaluate
+
+<ParamField path="model" type="str | callable" required>
+  Model URI or callable that produces predictions.
+</ParamField>
+
+<ParamField path="data" type="str | pandas.DataFrame" required>
+  Evaluation data as DataFrame or path to file.
+</ParamField>
+
+<ParamField path="targets" type="str" required>
+  Name of the column containing target values.
+</ParamField>
+
+<ParamField path="model_type" type="str" required>
+  Type of model ("classifier" or "regressor").
+</ParamField>
+
+<ParamField path="evaluators" type="str | list[str] | None" default="None">
+  Evaluators to use for evaluation.
+</ParamField>
+
+<ResponseField name="return" type="EvaluationResult">
+  Object containing evaluation metrics and artifacts.
+</ResponseField>
+
+```python
+import mlflow
+import pandas as pd
+
+# Prepare evaluation data
+eval_data = pd.DataFrame({
+    "feature1": [1, 2, 3, 4],
+    "feature2": [5, 6, 7, 8],
+    "target": [0, 1, 0, 1]
+})
+
+# Evaluate model
+with mlflow.start_run():
+    result = mlflow.evaluate(
+        model="runs:/abc123/model",
+        data=eval_data,
+        targets="target",
+        model_type="classifier"
+    )
+    
+    print(f"Accuracy: {result.metrics['accuracy']}")
+    print(f"F1 Score: {result.metrics['f1_score']}")
+```

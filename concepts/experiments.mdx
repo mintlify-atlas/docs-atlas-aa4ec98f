@@ -1,0 +1,342 @@
+---
+title: Experiments
+description: Understand MLflow Experiments for organizing and managing machine learning runs
+---
+
+## What is an Experiment?
+
+An experiment in MLflow is a collection of related runs that are organized together. Experiments provide a way to group and compare runs that are part of the same project or research question.
+
+Each experiment has a unique ID, a name, an artifact location, and metadata in the form of tags.
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/experiment.py:8-34`
+
+## Experiment Structure
+
+An `Experiment` object contains the following properties:
+
+```python
+from mlflow.entities import Experiment
+
+# Experiment properties
+experiment.experiment_id      # Unique string ID
+experiment.name               # String name of the experiment
+experiment.artifact_location  # Root URI for artifacts
+experiment.lifecycle_stage    # 'active' or 'deleted'
+experiment.tags               # Dictionary of tags
+experiment.creation_time      # Timestamp (milliseconds)
+experiment.last_update_time   # Timestamp (milliseconds)
+experiment.workspace          # Workspace owner (if applicable)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/experiment.py:36-84`
+
+## Creating and Setting Experiments
+
+### Set Experiment by Name
+
+The `set_experiment()` function sets the active experiment. If the experiment doesn't exist, it will be created automatically:
+
+```python
+import mlflow
+
+# Set experiment by name (creates if it doesn't exist)
+experiment = mlflow.set_experiment("recommendation-models")
+
+print(f"Experiment ID: {experiment.experiment_id}")
+print(f"Artifact Location: {experiment.artifact_location}")
+print(f"Lifecycle Stage: {experiment.lifecycle_stage}")
+```
+
+<Info>
+On Databricks, experiment names must be absolute paths, e.g., `/Users/username@company.com/my-experiment`
+</Info>
+
+Reference: `/home/daytona/workspace/source/mlflow/tracking/fluent.py:137-173`
+
+### Set Experiment by ID
+
+You can also set an experiment by its ID. This is useful when you know the exact experiment you want to use:
+
+```python
+import mlflow
+
+# Set experiment by ID
+experiment = mlflow.set_experiment(experiment_id="1")
+```
+
+<Warning>
+You must specify exactly one of `experiment_name` or `experiment_id`. Specifying both or neither will raise an error.
+</Warning>
+
+Reference: `/home/daytona/workspace/source/mlflow/tracking/fluent.py:182-188`
+
+### Create Experiment Explicitly
+
+For more control, use `create_experiment()` to explicitly create an experiment:
+
+```python
+import mlflow
+
+# Create an experiment with tags
+experiment_id = mlflow.create_experiment(
+    name="deep-learning-models",
+    artifact_location="s3://my-bucket/mlflow-artifacts",
+    tags={
+        "version": "v1",
+        "team": "ml-platform",
+        "project": "image-classification"
+    }
+)
+
+print(f"Created experiment with ID: {experiment_id}")
+```
+
+## Retrieving Experiments
+
+### Get Experiment by Name
+
+```python
+import mlflow
+
+experiment = mlflow.get_experiment_by_name("recommendation-models")
+
+if experiment:
+    print(f"Found experiment: {experiment.name}")
+    print(f"ID: {experiment.experiment_id}")
+else:
+    print("Experiment not found")
+```
+
+### Get Experiment by ID
+
+```python
+import mlflow
+
+experiment = mlflow.get_experiment("1")
+print(f"Experiment name: {experiment.name}")
+```
+
+### Search Experiments
+
+Search across all experiments with filters:
+
+```python
+import mlflow
+from mlflow.entities import ViewType
+
+# Search active experiments
+experiments = mlflow.search_experiments(
+    filter_string="name LIKE 'deep-learning%'",
+    order_by=["creation_time DESC"],
+    max_results=10
+)
+
+for exp in experiments:
+    print(f"{exp.name}: {exp.experiment_id}")
+
+# Include deleted experiments
+all_experiments = mlflow.search_experiments(
+    view_type=ViewType.ALL
+)
+```
+
+## Managing Experiment Tags
+
+Tags provide metadata for organizing and categorizing experiments.
+
+### Set Experiment Tags
+
+```python
+import mlflow
+
+# Set single tag
+mlflow.set_experiment_tag("model_type", "neural_network")
+
+# Set multiple tags at once
+mlflow.set_experiment_tags({
+    "framework": "pytorch",
+    "dataset": "imagenet",
+    "version": "2.0"
+})
+```
+
+### Delete Experiment Tags
+
+```python
+import mlflow
+
+# Remove a tag from the current experiment
+mlflow.delete_experiment_tag("old_tag")
+```
+
+## Special Experiment Tags
+
+MLflow uses special tags for experiment-level configuration:
+
+### Primary Metric
+
+Define the primary metric for comparing runs in an experiment:
+
+```python
+import mlflow
+from mlflow.utils.mlflow_tags import (
+    MLFLOW_EXPERIMENT_PRIMARY_METRIC_NAME,
+    MLFLOW_EXPERIMENT_PRIMARY_METRIC_GREATER_IS_BETTER
+)
+
+mlflow.set_experiment_tags({
+    MLFLOW_EXPERIMENT_PRIMARY_METRIC_NAME: "f1_score",
+    MLFLOW_EXPERIMENT_PRIMARY_METRIC_GREATER_IS_BETTER: "true"
+})
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/utils/mlflow_tags.py:78-79`
+
+## Default Experiment
+
+MLflow automatically creates a default experiment with ID `"0"` and name `"Default"`:
+
+```python
+import mlflow
+from mlflow.entities import Experiment
+
+print(f"Default experiment name: {Experiment.DEFAULT_EXPERIMENT_NAME}")
+# Output: "Default"
+```
+
+If you don't explicitly set an experiment, runs will be logged to this default experiment.
+
+Reference: `/home/daytona/workspace/source/mlflow/entities/experiment.py:13`
+
+## Experiment Lifecycle
+
+### Active vs Deleted
+
+Experiments can be in two lifecycle stages:
+
+- **active**: The experiment is available for logging runs
+- **deleted**: The experiment has been deleted but may be restored
+
+```python
+import mlflow
+from mlflow.entities.lifecycle_stage import LifecycleStage
+
+# Delete an experiment
+mlflow.delete_experiment("1")
+
+# Check lifecycle stage
+experiment = mlflow.get_experiment("1")
+if experiment.lifecycle_stage == LifecycleStage.DELETED:
+    print("Experiment is deleted")
+```
+
+## Working with the MlflowClient
+
+For advanced use cases, use `MlflowClient` for lower-level access:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Create experiment
+exp_id = client.create_experiment(
+    "advanced-experiment",
+    artifact_location="s3://bucket/path"
+)
+
+# Get experiment
+experiment = client.get_experiment(exp_id)
+
+# Update experiment
+client.rename_experiment(exp_id, "new-name")
+
+# Set experiment tags
+client.set_experiment_tag(exp_id, "key", "value")
+
+# Delete experiment
+client.delete_experiment(exp_id)
+```
+
+## Environment Variables
+
+You can set the active experiment using environment variables:
+
+```bash
+# Set by name
+export MLFLOW_EXPERIMENT_NAME="my-experiment"
+
+# Or set by ID
+export MLFLOW_EXPERIMENT_ID="1"
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/environment_variables:42-43`
+
+## Organizing Experiments
+
+<AccordionGroup>
+  <Accordion title="By Project or Model Type">
+    Create separate experiments for different projects or model architectures:
+    - `image-classification-resnet`
+    - `image-classification-vit`
+    - `nlp-sentiment-analysis`
+  </Accordion>
+  
+  <Accordion title="By Dataset or Task">
+    Organize experiments around specific datasets or tasks:
+    - `mnist-digit-recognition`
+    - `imagenet-1k-classification`
+    - `coco-object-detection`
+  </Accordion>
+  
+  <Accordion title="By Team or User">
+    On shared tracking servers, use prefixes for organization:
+    - `/Users/alice@company.com/experiments/model-v1`
+    - `/Teams/ml-platform/production-models`
+  </Accordion>
+  
+  <Accordion title="By Development Stage">
+    Separate experiments for different stages:
+    - `development-experiments`
+    - `staging-models`
+    - `production-candidates`
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Consistent Naming" icon="tag">
+    Use clear, descriptive names with consistent conventions like `project-model-version`
+  </Card>
+  
+  <Card title="Use Tags Liberally" icon="tags">
+    Add tags for team, project, framework, and dataset to make experiments searchable
+  </Card>
+  
+  <Card title="Set Primary Metrics" icon="chart-line">
+    Define primary metrics to help compare runs and identify best models
+  </Card>
+  
+  <Card title="Don't Over-Fragment" icon="object-group">
+    Balance organization with simplicity. Too many experiments makes comparison harder
+  </Card>
+</CardGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Runs" icon="play" href="./runs">
+    Learn about individual experiment runs
+  </Card>
+  <Card title="Tracking" icon="chart-mixed" href="./tracking">
+    Understand the MLflow Tracking system
+  </Card>
+  <Card title="Models" icon="cube" href="./models">
+    Organize models within experiments
+  </Card>
+  <Card title="Artifacts" icon="file" href="./artifacts">
+    Manage experiment outputs and files
+  </Card>
+</CardGroup>

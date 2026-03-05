@@ -1,0 +1,823 @@
+---
+title: Runs API
+description: REST API endpoints for creating and managing MLflow runs, metrics, and parameters
+---
+
+## Create Run
+
+Create a new run within an experiment. A run represents a single execution of a machine learning pipeline.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "1",
+    "run_name": "my-training-run",
+    "start_time": 1678886400000,
+    "tags": [
+      {"key": "mlflow.user", "value": "john.doe"},
+      {"key": "model_type", "value": "xgboost"}
+    ]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/create
+```
+
+```python Python
+import requests
+import time
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/create",
+    json={
+        "experiment_id": "1",
+        "run_name": "my-training-run",
+        "start_time": int(time.time() * 1000),
+        "tags": [
+            {"key": "mlflow.user", "value": "john.doe"},
+            {"key": "model_type", "value": "xgboost"}
+        ]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/create`
+
+### Request Body
+
+<ParamField body="experiment_id" type="string">
+  ID of the experiment under which to create the run.
+</ParamField>
+
+<ParamField body="run_name" type="string">
+  Name of the run. If not provided, a name will be auto-generated.
+</ParamField>
+
+<ParamField body="start_time" type="integer">
+  Unix timestamp in milliseconds when the run started. If not provided, the current time is used.
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Additional metadata for the run as key-value pairs.
+  
+  <Expandable title="Tag object">
+    <ParamField body="key" type="string" required>
+      Tag key. Maximum 250 bytes.
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      Tag value. Maximum 5000 bytes.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="run" type="object">
+  <Expandable title="Run object">
+    <ResponseField name="info" type="object">
+      Run metadata including `run_id`, `experiment_id`, `run_name`, `status`, `start_time`, `artifact_uri`, and `lifecycle_stage`.
+    </ResponseField>
+    <ResponseField name="data" type="object">
+      Run data including `metrics`, `params`, and `tags` arrays.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Response Example
+{
+  "run": {
+    "info": {
+      "run_id": "abc123def456",
+      "experiment_id": "1",
+      "run_name": "my-training-run",
+      "status": "RUNNING",
+      "start_time": 1678886400000,
+      "artifact_uri": "/mlruns/1/abc123def456/artifacts",
+      "lifecycle_stage": "active"
+    },
+    "data": {
+      "metrics": [],
+      "params": [],
+      "tags": [
+        {"key": "mlflow.user", "value": "john.doe"},
+        {"key": "model_type", "value": "xgboost"}
+      ]
+    }
+  }
+}
+```
+
+---
+
+## Get Run
+
+Retrieve metadata, metrics, params, and tags for a run.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/runs/get?run_id=abc123def456"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/runs/get",
+    params={"run_id": "abc123def456"}
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/runs/get`
+
+### Query Parameters
+
+<ParamField query="run_id" type="string" required>
+  ID of the run to retrieve.
+</ParamField>
+
+### Response
+
+<ResponseField name="run" type="object">
+  Complete run object with `info` (metadata) and `data` (metrics, params, tags).
+</ResponseField>
+
+---
+
+## Search Runs
+
+Search for runs matching filter criteria across one or more experiments.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_ids": ["1", "2"],
+    "filter": "metrics.accuracy > 0.9 AND params.model = '"'"'xgboost'"'"'",
+    "max_results": 100,
+    "order_by": ["metrics.accuracy DESC"]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/search
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/search",
+    json={
+        "experiment_ids": ["1", "2"],
+        "filter": "metrics.accuracy > 0.9 AND params.model = 'xgboost'",
+        "max_results": 100,
+        "order_by": ["metrics.accuracy DESC"]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/search`
+
+### Request Body
+
+<ParamField body="experiment_ids" type="array">
+  List of experiment IDs to search. Required.
+</ParamField>
+
+<ParamField body="filter" type="string">
+  Filter expression using SQL-like syntax. Can filter by metrics, params, tags, and attributes.
+  
+  Examples:
+  - `metrics.rmse < 0.5`
+  - `params.model_class = 'LogisticRegression'`
+  - `tags.user = 'john' AND metrics.accuracy > 0.9`
+  - `attributes.status = 'FINISHED'`
+  
+  Supported operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `AND`
+</ParamField>
+
+<ParamField body="run_view_type" type="string">
+  Filter by lifecycle stage:
+  - `ACTIVE_ONLY` (default) - Only active runs
+  - `DELETED_ONLY` - Only deleted runs
+  - `ALL` - Both active and deleted
+</ParamField>
+
+<ParamField body="max_results" type="integer">
+  Maximum number of runs to return. Defaults to 1000. Servers support at least 50,000.
+</ParamField>
+
+<ParamField body="order_by" type="array">
+  List of columns for ordering results. Can include metrics, params, tags, and attributes with optional `DESC` or `ASC` (default).
+  
+  Examples: `["metrics.accuracy DESC", "params.model ASC"]`
+</ParamField>
+
+<ParamField body="page_token" type="string">
+  Token for pagination to retrieve the next page.
+</ParamField>
+
+### Response
+
+<ResponseField name="runs" type="array">
+  Array of run objects matching the search criteria.
+</ResponseField>
+
+<ResponseField name="next_page_token" type="string">
+  Token to retrieve the next page. Empty if no more results.
+</ResponseField>
+
+```json Response Example
+{
+  "runs": [
+    {
+      "info": {
+        "run_id": "abc123",
+        "experiment_id": "1",
+        "status": "FINISHED",
+        "start_time": 1678886400000,
+        "end_time": 1678890000000
+      },
+      "data": {
+        "metrics": [{"key": "accuracy", "value": 0.95}],
+        "params": [{"key": "model", "value": "xgboost"}],
+        "tags": [{"key": "mlflow.user", "value": "john"}]
+      }
+    }
+  ],
+  "next_page_token": ""
+}
+```
+
+---
+
+## Update Run
+
+Update run metadata including status and end time.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "status": "FINISHED",
+    "end_time": 1678890000000,
+    "run_name": "updated-run-name"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/update
+```
+
+```python Python
+import requests
+import time
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/update",
+    json={
+        "run_id": "abc123def456",
+        "status": "FINISHED",
+        "end_time": int(time.time() * 1000),
+        "run_name": "updated-run-name"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/update`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run to update.
+</ParamField>
+
+<ParamField body="status" type="string">
+  Updated run status. One of: `RUNNING`, `SCHEDULED`, `FINISHED`, `FAILED`, `KILLED`.
+</ParamField>
+
+<ParamField body="end_time" type="integer">
+  Unix timestamp in milliseconds when the run ended.
+</ParamField>
+
+<ParamField body="run_name" type="string">
+  Updated name for the run.
+</ParamField>
+
+### Response
+
+<ResponseField name="run_info" type="object">
+  Updated run metadata.
+</ResponseField>
+
+---
+
+## Delete Run
+
+Mark a run for deletion.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"run_id": "abc123def456"}' \
+  http://localhost:5000/api/2.0/mlflow/runs/delete
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/delete",
+    json={"run_id": "abc123def456"}
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/delete`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run to delete.
+</ParamField>
+
+---
+
+## Restore Run
+
+Restore a deleted run.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"run_id": "abc123def456"}' \
+  http://localhost:5000/api/2.0/mlflow/runs/restore
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/restore",
+    json={"run_id": "abc123def456"}
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/restore`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run to restore.
+</ParamField>
+
+---
+
+## Log Metric
+
+Log a metric for a run. Metrics can be logged multiple times.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "key": "accuracy",
+    "value": 0.95,
+    "timestamp": 1678886400000,
+    "step": 100
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/log-metric
+```
+
+```python Python
+import requests
+import time
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/log-metric",
+    json={
+        "run_id": "abc123def456",
+        "key": "accuracy",
+        "value": 0.95,
+        "timestamp": int(time.time() * 1000),
+        "step": 100
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/log-metric`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Metric name. Maximum 250 bytes.
+</ParamField>
+
+<ParamField body="value" type="number" required>
+  Metric value (double).
+</ParamField>
+
+<ParamField body="timestamp" type="integer" required>
+  Unix timestamp in milliseconds when the metric was logged.
+</ParamField>
+
+<ParamField body="step" type="integer">
+  Training step at which the metric was logged. Defaults to 0.
+</ParamField>
+
+---
+
+## Log Parameter
+
+Log a parameter for a run. Parameters can only be logged once per run.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "key": "learning_rate",
+    "value": "0.001"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/log-parameter
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/log-parameter",
+    json={
+        "run_id": "abc123def456",
+        "key": "learning_rate",
+        "value": "0.001"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/log-parameter`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Parameter name. Maximum 255 bytes.
+</ParamField>
+
+<ParamField body="value" type="string" required>
+  Parameter value. Maximum 6000 bytes.
+</ParamField>
+
+---
+
+## Log Batch
+
+Log multiple metrics, parameters, and tags in a single request.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "metrics": [
+      {"key": "accuracy", "value": 0.95, "timestamp": 1678886400000, "step": 100},
+      {"key": "loss", "value": 0.05, "timestamp": 1678886400000, "step": 100}
+    ],
+    "params": [
+      {"key": "learning_rate", "value": "0.001"},
+      {"key": "batch_size", "value": "32"}
+    ],
+    "tags": [
+      {"key": "model_type", "value": "neural_network"}
+    ]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/log-batch
+```
+
+```python Python
+import requests
+import time
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/log-batch",
+    json={
+        "run_id": "abc123def456",
+        "metrics": [
+            {"key": "accuracy", "value": 0.95, "timestamp": int(time.time() * 1000), "step": 100},
+            {"key": "loss", "value": 0.05, "timestamp": int(time.time() * 1000), "step": 100}
+        ],
+        "params": [
+            {"key": "learning_rate", "value": "0.001"},
+            {"key": "batch_size", "value": "32"}
+        ],
+        "tags": [
+            {"key": "model_type", "value": "neural_network"}
+        ]
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/log-batch`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField body="metrics" type="array">
+  Array of metric objects. Maximum 1000 metrics per request.
+  
+  <Expandable title="Metric object">
+    <ParamField body="key" type="string" required>
+      Metric name. Maximum 250 bytes.
+    </ParamField>
+    <ParamField body="value" type="number" required>
+      Metric value.
+    </ParamField>
+    <ParamField body="timestamp" type="integer" required>
+      Unix timestamp in milliseconds.
+    </ParamField>
+    <ParamField body="step" type="integer">
+      Training step. Defaults to 0.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="params" type="array">
+  Array of parameter objects. Maximum 100 params per request.
+  
+  <Expandable title="Parameter object">
+    <ParamField body="key" type="string" required>
+      Parameter name. Maximum 255 bytes.
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      Parameter value. Maximum 6000 bytes.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Array of tag objects. Maximum 100 tags per request.
+  
+  <Expandable title="Tag object">
+    <ParamField body="key" type="string" required>
+      Tag name. Maximum 250 bytes.
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      Tag value. Maximum 5000 bytes.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Request Limits
+
+- Maximum request size: 1 MB
+- Maximum total entities (metrics + params + tags): 1000
+- Maximum metrics per request: 1000
+- Maximum params per request: 100
+- Maximum tags per request: 100
+
+### Behavior Notes
+
+- **Metrics**: Values are never overwritten. Each log appends to the metric history.
+- **Parameters**: Cannot be changed once written. Logging the same param (key, value) is idempotent.
+- **Tags**: Values can be overwritten. Last value wins if multiple tags with same key.
+
+---
+
+## Set Tag
+
+Set a tag on a run. Tags can be updated during and after a run.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "key": "deployment_stage",
+    "value": "production"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/set-tag
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/set-tag",
+    json={
+        "run_id": "abc123def456",
+        "key": "deployment_stage",
+        "value": "production"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/set-tag`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key. Maximum 250 bytes.
+</ParamField>
+
+<ParamField body="value" type="string" required>
+  Tag value. Maximum 5000 bytes.
+</ParamField>
+
+---
+
+## Delete Tag
+
+Delete a tag from a run.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "run_id": "abc123def456",
+    "key": "deployment_stage"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/runs/delete-tag
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/runs/delete-tag",
+    json={
+        "run_id": "abc123def456",
+        "key": "deployment_stage"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/runs/delete-tag`
+
+### Request Body
+
+<ParamField body="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key to delete. Maximum 255 bytes.
+</ParamField>
+
+---
+
+## Get Metric History
+
+Retrieve all logged values for a specific metric.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/metrics/get-history?run_id=abc123def456&metric_key=accuracy"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/metrics/get-history",
+    params={
+        "run_id": "abc123def456",
+        "metric_key": "accuracy"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/metrics/get-history`
+
+### Query Parameters
+
+<ParamField query="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField query="metric_key" type="string" required>
+  Name of the metric.
+</ParamField>
+
+### Response
+
+<ResponseField name="metrics" type="array">
+  Array of metric values with timestamps and steps.
+</ResponseField>
+
+```json Response Example
+{
+  "metrics": [
+    {
+      "key": "accuracy",
+      "value": 0.85,
+      "timestamp": 1678886400000,
+      "step": 50
+    },
+    {
+      "key": "accuracy",
+      "value": 0.95,
+      "timestamp": 1678886450000,
+      "step": 100
+    }
+  ]
+}
+```
+
+---
+
+## List Artifacts
+
+List artifacts for a run with optional path prefix.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/artifacts/list?run_id=abc123def456&path=model"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/artifacts/list",
+    params={
+        "run_id": "abc123def456",
+        "path": "model"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/artifacts/list`
+
+### Query Parameters
+
+<ParamField query="run_id" type="string" required>
+  ID of the run.
+</ParamField>
+
+<ParamField query="path" type="string">
+  Path prefix to filter artifacts. If not specified, lists all artifacts.
+</ParamField>
+
+### Response
+
+<ResponseField name="root_uri" type="string">
+  Root artifact URI for the run.
+</ResponseField>
+
+<ResponseField name="files" type="array">
+  Array of file objects with `path`, `is_dir`, and `file_size` properties.
+</ResponseField>
+
+```json Response Example
+{
+  "root_uri": "/mlruns/1/abc123def456/artifacts",
+  "files": [
+    {
+      "path": "model/MLmodel",
+      "is_dir": false,
+      "file_size": 1234
+    },
+    {
+      "path": "model/model.pkl",
+      "is_dir": false,
+      "file_size": 50000
+    }
+  ]
+}
+```

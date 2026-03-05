@@ -1,0 +1,630 @@
+---
+title: Scikit-learn Integration
+description: Automatically log scikit-learn models and metrics with MLflow
+---
+
+MLflow provides comprehensive support for scikit-learn, enabling automatic logging of parameters, metrics, and models with minimal code changes.
+
+## Installation
+
+```bash
+pip install mlflow scikit-learn
+```
+
+## Quick Start
+
+```python
+from sklearn.datasets import load_iris
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import train_test_split
+import mlflow
+import mlflow.sklearn
+
+# Enable autologging
+mlflow.sklearn.autolog()
+
+# Load data
+iris = load_iris()
+X_train, X_test, y_train, y_test = train_test_split(
+    iris.data, iris.target, test_size=0.2, random_state=42
+)
+
+# Train model - MLflow automatically logs everything
+with mlflow.start_run():
+    model = DecisionTreeClassifier(max_depth=3)
+    model.fit(X_train, y_train)
+    
+    # Automatically logged:
+    # - Parameters: max_depth, criterion, splitter, etc.
+    # - Metrics: training score
+    # - Model artifact
+```
+
+## Autologging
+
+Enable autologging to capture training details automatically:
+
+```python
+import mlflow.sklearn
+
+mlflow.sklearn.autolog(
+    log_input_examples=False,
+    log_model_signatures=True,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    max_tuning_runs=5,
+    log_post_training_metrics=True,
+    serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
+    registered_model_name=None,
+    pos_label=None,
+    extra_tags=None
+)
+```
+
+<ParamField path="log_models" type="bool" default="True">
+  If True, trained models are logged as MLflow model artifacts
+</ParamField>
+
+<ParamField path="log_post_training_metrics" type="bool" default="True">
+  If True, post-training metrics from `model.score()` and `sklearn.metrics` calls are logged
+</ParamField>
+
+<ParamField path="max_tuning_runs" type="int" default="5">
+  Maximum number of child runs to log for hyperparameter tuning (e.g., GridSearchCV)
+</ParamField>
+
+<ParamField path="serialization_format" type="str" default="cloudpickle">
+  Format for model serialization: "pickle", "cloudpickle", or "skops"
+</ParamField>
+
+### What Gets Logged
+
+When autologging is enabled, MLflow captures:
+
+- **Parameters**: All parameters from `get_params(deep=True)`
+- **Training Metrics**: Training score from `model.score()`
+- **Models**: Trained estimator in MLflow format
+- **Post-training Metrics**: Metrics from `sklearn.metrics` calls
+- **Datasets**: Training dataset information
+- **Artifacts**: Model artifacts and metadata
+
+For classifiers:
+- Precision, recall, f1-score, accuracy
+- Log loss and ROC AUC (if `predict_proba` available)
+
+For regressors:
+- Mean squared error, root mean squared error
+- Mean absolute error, R² score
+
+## Logging Models
+
+### Save a Model
+
+```python
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+from mlflow.models import infer_signature
+
+# Train model
+model = RandomForestClassifier(n_estimators=100)
+model.fit(X_train, y_train)
+
+# Create signature
+signature = infer_signature(X_train, model.predict(X_train))
+
+# Save model
+mlflow.sklearn.save_model(
+    model,
+    "sklearn_model",
+    signature=signature,
+    serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
+)
+```
+
+### Log a Model
+
+```python
+import mlflow.sklearn
+
+with mlflow.start_run():
+    # Train model
+    model = RandomForestClassifier(n_estimators=100, max_depth=5)
+    model.fit(X_train, y_train)
+    
+    # Log model
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        name="model",
+        signature=signature,
+        input_example=X_train[:5],
+        registered_model_name="random_forest_classifier"
+    )
+```
+
+### Serialization Formats
+
+```python
+# Skops format (safe, recommended)
+mlflow.sklearn.log_model(
+    model,
+    "model",
+    serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_SKOPS
+)
+
+# CloudPickle format (cross-platform)
+mlflow.sklearn.log_model(
+    model,
+    "model",
+    serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE
+)
+
+# Pickle format
+mlflow.sklearn.log_model(
+    model,
+    "model",
+    serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_PICKLE
+)
+```
+
+<Note>
+  The `skops` format is recommended for security as it avoids arbitrary code execution during deserialization.
+</Note>
+
+### Load a Model
+
+```python
+import mlflow.sklearn
+
+# Load native sklearn model
+model = mlflow.sklearn.load_model("runs:/abc123/model")
+predictions = model.predict(X_test)
+
+# Load as PyFunc
+import mlflow.pyfunc
+pyfunc_model = mlflow.pyfunc.load_model("runs:/abc123/model")
+result = pyfunc_model.predict(X_test)
+```
+
+## Post-Training Metrics
+
+MLflow automatically captures post-training metrics:
+
+```python
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+import mlflow.sklearn
+
+mlflow.sklearn.autolog(log_post_training_metrics=True)
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    
+    # These metrics are automatically logged
+    y_pred = model.predict(X_test)
+    accuracy_score(y_test, y_pred)  # Logged as "accuracy_score_X_test"
+    precision_score(y_test, y_pred, average='macro')  # Logged automatically
+    recall_score(y_test, y_pred, average='macro')  # Logged automatically
+    
+    # Model.score() is also logged
+    model.score(X_test, y_test)  # Logged as "RandomForestClassifier_score_X_test"
+```
+
+Metric key format: `{metric_name}[-{call_index}]_{dataset_name}`
+
+## Pipelines
+
+MLflow supports scikit-learn pipelines:
+
+```python
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+import mlflow.sklearn
+
+mlflow.sklearn.autolog()
+
+pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('svm', SVC(kernel='rbf', C=1.0))
+])
+
+with mlflow.start_run():
+    pipeline.fit(X_train, y_train)
+    # All pipeline steps and parameters are logged
+    # Parameters logged: scaler__with_mean, svm__C, svm__kernel, etc.
+```
+
+## Hyperparameter Tuning
+
+### GridSearchCV
+
+```python
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+import mlflow.sklearn
+
+mlflow.sklearn.autolog(max_tuning_runs=5)
+
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [3, 5, 7],
+    'min_samples_split': [2, 5, 10]
+}
+
+with mlflow.start_run():
+    grid_search = GridSearchCV(
+        RandomForestClassifier(),
+        param_grid,
+        cv=5,
+        scoring='accuracy'
+    )
+    
+    grid_search.fit(X_train, y_train)
+    
+    # MLflow logs:
+    # - Parent run with best model
+    # - Child runs for top 5 parameter combinations
+    # - All CV scores and parameters
+```
+
+### RandomizedSearchCV
+
+```python
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint, uniform
+import mlflow.sklearn
+
+mlflow.sklearn.autolog(max_tuning_runs=10)
+
+param_distributions = {
+    'n_estimators': randint(50, 200),
+    'max_depth': randint(3, 10),
+    'min_samples_split': randint(2, 11),
+    'min_samples_leaf': randint(1, 5)
+}
+
+with mlflow.start_run():
+    random_search = RandomizedSearchCV(
+        RandomForestClassifier(),
+        param_distributions,
+        n_iter=20,
+        cv=5,
+        scoring='f1_macro'
+    )
+    
+    random_search.fit(X_train, y_train)
+    # Best parameters and top runs are automatically logged
+```
+
+## Advanced Usage
+
+### Custom Predict Functions
+
+```python
+import mlflow.sklearn
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    
+    # Log model with custom predict function
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        pyfunc_predict_fn="predict_proba"  # Use predict_proba instead of predict
+    )
+
+# Load and use
+pyfunc_model = mlflow.pyfunc.load_model("runs:/abc123/model")
+proba = pyfunc_model.predict(X_test)  # Returns probabilities
+```
+
+Supported predict functions:
+- `predict` (default)
+- `predict_proba`
+- `predict_log_proba`
+- `predict_joint_log_proba`
+- `score`
+
+### Feature Importance
+
+```python
+import mlflow
+import mlflow.sklearn
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    
+    # Log model
+    mlflow.sklearn.log_model(model, "model")
+    
+    # Log feature importance
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+        feature_names = [f"feature_{i}" for i in range(len(importances))]
+        
+        # Log as dict
+        importance_dict = dict(zip(feature_names, importances))
+        mlflow.log_dict(importance_dict, "feature_importance.json")
+        
+        # Create and log plot
+        plt.figure(figsize=(10, 6))
+        plt.barh(feature_names, importances)
+        plt.xlabel('Importance')
+        plt.title('Feature Importance')
+        mlflow.log_figure(plt.gcf(), "feature_importance.png")
+```
+
+### Cross-Validation
+
+```python
+from sklearn.model_selection import cross_val_score
+import mlflow
+import numpy as np
+
+mlflow.sklearn.autolog()
+
+with mlflow.start_run():
+    model = RandomForestClassifier(n_estimators=100)
+    
+    # Cross-validation
+    cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='accuracy')
+    
+    # Log CV metrics
+    mlflow.log_metric("cv_mean_accuracy", cv_scores.mean())
+    mlflow.log_metric("cv_std_accuracy", cv_scores.std())
+    
+    # Train on full dataset
+    model.fit(X_train, y_train)
+```
+
+### Multi-Metric Evaluation
+
+```python
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix
+)
+import mlflow.sklearn
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+mlflow.sklearn.autolog()
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)
+    
+    # All these metrics are automatically logged
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    f1 = f1_score(y_test, y_pred, average='weighted')
+    roc_auc = roc_auc_score(y_test, y_pred_proba, multi_class='ovr')
+    
+    # Log confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    mlflow.log_figure(plt.gcf(), "confusion_matrix.png")
+```
+
+## Common Estimators
+
+### Classification
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+import mlflow.sklearn
+
+mlflow.sklearn.autolog()
+
+estimators = [
+    ('Logistic Regression', LogisticRegression(max_iter=1000)),
+    ('Random Forest', RandomForestClassifier(n_estimators=100)),
+    ('Gradient Boosting', GradientBoostingClassifier()),
+    ('SVM', SVC(probability=True)),
+    ('KNN', KNeighborsClassifier(n_neighbors=5))
+]
+
+for name, estimator in estimators:
+    with mlflow.start_run(run_name=name):
+        estimator.fit(X_train, y_train)
+        # All parameters and metrics logged automatically
+```
+
+### Regression
+
+```python
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.svm import SVR
+import mlflow.sklearn
+
+mlflow.sklearn.autolog()
+
+regressors = [
+    ('Linear Regression', LinearRegression()),
+    ('Ridge', Ridge(alpha=1.0)),
+    ('Lasso', Lasso(alpha=1.0)),
+    ('Random Forest', RandomForestRegressor(n_estimators=100)),
+    ('SVR', SVR(kernel='rbf'))
+]
+
+for name, regressor in regressors:
+    with mlflow.start_run(run_name=name):
+        regressor.fit(X_train, y_train)
+        # MSE, MAE, R2 automatically logged
+```
+
+### Clustering
+
+```python
+from sklearn.cluster import KMeans, DBSCAN
+import mlflow
+
+with mlflow.start_run():
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    labels = kmeans.fit_predict(X)
+    
+    # Log parameters
+    mlflow.log_params(kmeans.get_params())
+    
+    # Log metrics
+    mlflow.log_metric("inertia", kmeans.inertia_)
+    
+    # Log model
+    mlflow.sklearn.log_model(kmeans, "model")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Skops Format for Security">
+    Prefer skops serialization to avoid pickle vulnerabilities:
+    
+    ```python
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_SKOPS
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Always Include Signatures">
+    Log models with signatures for proper validation:
+    
+    ```python
+    signature = infer_signature(X_train, model.predict(X_train))
+    mlflow.sklearn.log_model(model, "model", signature=signature)
+    ```
+  </Accordion>
+  
+  <Accordion title="Log Input Examples">
+    Provide input examples for better documentation:
+    
+    ```python
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        input_example=X_train[:5]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Post-Training Metrics">
+    Enable post-training metrics for comprehensive evaluation:
+    
+    ```python
+    mlflow.sklearn.autolog(log_post_training_metrics=True)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Model Evaluation
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.model_selection import cross_validate
+
+mlflow.sklearn.autolog()
+
+with mlflow.start_run():
+    model = RandomForestClassifier()
+    
+    # Comprehensive evaluation
+    scoring = {
+        'accuracy': 'accuracy',
+        'precision': 'precision_weighted',
+        'recall': 'recall_weighted',
+        'f1': 'f1_weighted'
+    }
+    
+    cv_results = cross_validate(
+        model, X_train, y_train,
+        cv=5,
+        scoring=scoring,
+        return_train_score=True
+    )
+    
+    # Log all CV metrics
+    for metric_name, scores in cv_results.items():
+        if metric_name.startswith('test_'):
+            metric = metric_name.replace('test_', '')
+            mlflow.log_metric(f"cv_{metric}_mean", scores.mean())
+            mlflow.log_metric(f"cv_{metric}_std", scores.std())
+    
+    # Train final model
+    model.fit(X_train, y_train)
+```
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m runs:/<run_id>/model -p 5000
+```
+
+Test:
+
+```bash
+curl -X POST http://127.0.0.1:5000/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{"dataframe_split": {"columns": ["sepal_length", "sepal_width", "petal_length", "petal_width"], "data": [[5.1, 3.5, 1.4, 0.2]]}}'
+```
+
+### Batch Inference
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+model = mlflow.pyfunc.load_model("runs:/<run_id>/model")
+
+# Batch predictions
+df = pd.DataFrame({
+    'sepal_length': [5.1, 4.9, 6.2],
+    'sepal_width': [3.5, 3.0, 3.4],
+    'petal_length': [1.4, 1.4, 5.4],
+    'petal_width': [0.2, 0.2, 2.3]
+})
+
+predictions = model.predict(df)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PyTorch Integration" icon="fire" href="/integrations/pytorch">
+    Track deep learning models
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and deploy sklearn models
+  </Card>
+  
+  <Card title="Hyperparameter Tuning" icon="sliders" href="/tracking/hyperparameters">
+    Optimize model hyperparameters
+  </Card>
+  
+  <Card title="MLflow Projects" icon="folder" href="/projects">
+    Package ML code for reproducibility
+  </Card>
+</CardGroup>

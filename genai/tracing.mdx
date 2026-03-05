@@ -1,0 +1,797 @@
+---
+title: LLM Tracing
+description: Comprehensive guide to tracing LLM applications with MLflow for observability and debugging
+---
+
+# LLM Tracing and Observability
+
+MLflow Tracing provides comprehensive observability for LLM applications by capturing detailed execution traces. Each trace contains a hierarchical structure of spans that represent function calls, LLM invocations, and other operations.
+
+## Why Tracing?
+
+Tracing helps you:
+
+- **Debug** complex LLM chains and agent workflows
+- **Monitor** production LLM applications for performance and quality
+- **Evaluate** LLM outputs by analyzing captured traces
+- **Optimize** token usage and latency bottlenecks
+- **Understand** multi-step reasoning and tool usage
+
+## Quick Start
+
+### Enable Tracing
+
+```python
+import mlflow
+
+# Enable tracing globally
+mlflow.tracing.enable()
+
+# Now all supported frameworks are automatically traced
+import openai
+
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+# Access the last trace
+trace_id = mlflow.get_last_active_trace_id()
+trace = mlflow.get_trace(trace_id)
+```
+
+### Manual Tracing with Decorator
+
+```python
+import mlflow
+
+@mlflow.trace
+def process_user_query(question: str) -> str:
+    # Automatically captures inputs, outputs, and exceptions
+    context = retrieve_context(question)
+    answer = generate_answer(question, context)
+    return answer
+
+@mlflow.trace(span_type="RETRIEVER")
+def retrieve_context(query: str) -> list[str]:
+    # Nested function calls create child spans
+    return ["context 1", "context 2"]
+
+@mlflow.trace(span_type="LLM")
+def generate_answer(question: str, context: list[str]) -> str:
+    import openai
+    client = openai.OpenAI()
+    
+    prompt = f"Context: {context}\nQuestion: {question}"
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+# Call the function - creates a trace with 3 spans
+result = process_user_query("What is MLflow?")
+```
+
+## Trace Structure
+
+A trace consists of:
+
+- **Trace**: Top-level container with metadata (ID, timestamp, status)
+- **Spans**: Individual operations forming a tree structure
+  - **Root span**: Entry point of the trace
+  - **Child spans**: Nested operations
+
+```python
+# Example trace structure
+trace = mlflow.get_trace(trace_id)
+
+print(f"Trace ID: {trace.info.trace_id}")
+print(f"Status: {trace.info.status}")
+print(f"Duration: {trace.info.execution_duration} ms")
+
+# Access spans
+for span in trace.data.spans:
+    print(f"Span: {span.name}")
+    print(f"  Type: {span.span_type}")
+    print(f"  Inputs: {span.inputs}")
+    print(f"  Outputs: {span.outputs}")
+    print(f"  Duration: {span.duration} ms")
+```
+
+## Tracing Methods
+
+### 1. Automatic Tracing (Autologging)
+
+MLflow automatically traces calls to supported frameworks:
+
+```python
+import mlflow
+
+# Enable tracing
+mlflow.tracing.enable()
+
+# Supported frameworks (automatically traced):
+# - OpenAI
+# - LangChain
+# - LlamaIndex  
+# - Anthropic
+# - Cohere
+# - Mistral
+# - and more...
+
+import openai
+import langchain
+from llama_index.core import VectorStoreIndex
+
+# All calls are automatically traced
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+```
+
+### 2. Decorator-based Tracing
+
+Use `@mlflow.trace` for custom functions:
+
+```python
+import mlflow
+
+@mlflow.trace
+def my_function(x: int) -> int:
+    return x + 1
+
+# With custom span type and attributes
+@mlflow.trace(
+    span_type="PARSER",
+    attributes={"parser_version": "1.0"}
+)
+def parse_document(doc: str) -> dict:
+    # Your parsing logic
+    return {"title": "...", "content": "..."}
+```
+
+### 3. Context Manager Tracing
+
+Use `mlflow.start_span()` for fine-grained control:
+
+```python
+import mlflow
+
+with mlflow.start_span(name="data_processing") as span:
+    # Set inputs explicitly
+    span.set_inputs({"batch_size": 100})
+    
+    # Process data
+    result = process_batch(data)
+    
+    # Set outputs and attributes
+    span.set_outputs({"processed_count": len(result)})
+    span.set_attribute("processing_time", 1.5)
+```
+
+### 4. Low-level API
+
+For complete control over span lifecycle:
+
+```python
+import mlflow
+
+# Start a root span
+root_span = mlflow.start_span_no_context(
+    name="root_operation",
+    span_type="CHAIN",
+    inputs={"user_id": "123"}
+)
+
+# Create child spans
+child_span = mlflow.start_span_no_context(
+    name="child_operation",
+    parent_span=root_span,
+    span_type="LLM"
+)
+
+# Do work...
+child_span.end(outputs={"result": "..."})
+root_span.end()
+```
+
+## Span Types
+
+MLflow defines standard span types for common operations:
+
+```python
+from mlflow.entities import SpanType
+
+@mlflow.trace(span_type=SpanType.LLM)
+def call_llm(): ...
+
+@mlflow.trace(span_type=SpanType.RETRIEVER)
+def retrieve_docs(): ...
+
+@mlflow.trace(span_type=SpanType.CHAIN)
+def run_chain(): ...
+
+@mlflow.trace(span_type=SpanType.AGENT)
+def run_agent(): ...
+
+@mlflow.trace(span_type=SpanType.TOOL)
+def call_tool(): ...
+
+@mlflow.trace(span_type=SpanType.PARSER)
+def parse_output(): ...
+
+@mlflow.trace(span_type=SpanType.EMBEDDING)
+def get_embeddings(): ...
+```
+
+## Capturing Metadata
+
+### Setting Span Inputs and Outputs
+
+```python
+@mlflow.trace
+def process_query(question: str) -> str:
+    # Inputs/outputs are captured automatically
+    return generate_answer(question)
+
+# Or set explicitly with context manager
+with mlflow.start_span("custom_span") as span:
+    span.set_inputs({"query": "What is MLflow?"})
+    result = do_work()
+    span.set_outputs({"answer": result})
+```
+
+### Setting Span Attributes
+
+```python
+with mlflow.start_span("llm_call") as span:
+    span.set_attribute("model", "gpt-4o")
+    span.set_attribute("temperature", 0.7)
+    span.set_attribute("max_tokens", 1000)
+    
+    # Or set multiple at once
+    span.set_attributes({
+        "provider": "openai",
+        "request_id": "req_123"
+    })
+```
+
+### Recording Events
+
+```python
+from mlflow.entities.span_event import SpanEvent
+
+with mlflow.start_span("processing") as span:
+    # Record custom events
+    span.add_event(SpanEvent(
+        name="cache_miss",
+        attributes={"key": "user_123"}
+    ))
+    
+    # Record exceptions
+    try:
+        risky_operation()
+    except Exception as e:
+        span.add_event(SpanEvent.from_exception(e))
+        raise
+```
+
+## Streaming and Async Support
+
+### Generator Functions
+
+```python
+@mlflow.trace
+def stream_tokens(prompt: str):
+    """Stream tokens from LLM"""
+    client = openai.OpenAI()
+    stream = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True
+    )
+    
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+# Streaming is automatically captured
+for token in stream_tokens("Tell me a story"):
+    print(token, end="")
+```
+
+### Custom Output Reducer
+
+```python
+def concat_chunks(chunks: list[str]) -> str:
+    """Combine streamed chunks into final output"""
+    return "".join(chunks)
+
+@mlflow.trace(output_reducer=concat_chunks)
+def stream_response(prompt: str):
+    for chunk in generate_stream(prompt):
+        yield chunk
+```
+
+### Async Functions
+
+```python
+import asyncio
+
+@mlflow.trace
+async def async_llm_call(prompt: str) -> str:
+    """Async LLM call - automatically traced"""
+    client = openai.AsyncOpenAI()
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+# Call async function
+result = asyncio.run(async_llm_call("What is MLflow?"))
+```
+
+### Async Generators
+
+```python
+@mlflow.trace
+async def async_stream(prompt: str):
+    """Async streaming - automatically traced"""
+    client = openai.AsyncOpenAI()
+    stream = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True
+    )
+    
+    async for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+```
+
+## Trace Management
+
+### Searching Traces
+
+```python
+import mlflow
+
+# Search by filter
+traces = mlflow.search_traces(
+    filter_string="timestamp > '2024-01-01' AND status = 'OK'",
+    max_results=10,
+    order_by=["timestamp DESC"]
+)
+
+# Search by run ID
+traces = mlflow.search_traces(run_id="abc123")
+
+# Search by model ID
+traces = mlflow.search_traces(model_id="m-074689226d3b40bfbbdf4c3ff35832cd")
+
+# Return as DataFrame
+import pandas as pd
+df = mlflow.search_traces(
+    filter_string="timestamp > '2024-01-01'",
+    return_type="pandas"
+)
+```
+
+### Getting Traces
+
+```python
+# Get trace by ID
+trace = mlflow.get_trace(trace_id)
+
+# Get last active trace (thread-local)
+trace_id = mlflow.get_last_active_trace_id(thread_local=True)
+trace = mlflow.get_trace(trace_id)
+
+# Get current active trace
+active_span = mlflow.get_current_active_span()
+if active_span:
+    trace_id = active_span.trace_id
+```
+
+### Updating Traces
+
+```python
+@mlflow.trace
+def my_function(x):
+    # Update trace metadata
+    mlflow.update_current_trace(
+        tags={"environment": "production", "version": "1.0"},
+        metadata={"user_id": "user_123"},
+        client_request_id="req_abc",
+        model_id="m-123"
+    )
+    return x + 1
+```
+
+### Setting Trace Tags
+
+```python
+# Set tags on existing trace
+mlflow.set_trace_tag(trace_id, "experiment_type", "A/B test")
+mlflow.set_trace_tag(trace_id, "model_version", "v2.1")
+
+# Delete tags
+mlflow.delete_trace_tag(trace_id, "experiment_type")
+```
+
+## Trace Destinations
+
+### Experiment Destination
+
+```python
+import mlflow
+
+mlflow.set_experiment("my-llm-experiment")
+
+# Traces are logged to the active experiment
+@mlflow.trace
+def my_function():
+    return "result"
+```
+
+### Custom Destination
+
+```python
+from mlflow.entities.trace_location import MlflowExperimentLocation
+
+# Set custom destination
+mlflow.tracing.set_destination(
+    MlflowExperimentLocation(experiment_id="123")
+)
+
+# All subsequent traces go to this destination
+```
+
+### Databricks UC Tables
+
+```python
+import mlflow
+
+mlflow.tracing.set_destination(
+    locations=["catalog.schema"]  # Unity Catalog location
+)
+```
+
+## Distributed Tracing
+
+### Context Propagation
+
+Propagate trace context across service boundaries:
+
+```python
+import mlflow
+import requests
+
+@mlflow.trace
+def call_remote_service():
+    # Get context headers to propagate
+    headers = mlflow.tracing.get_tracing_context_headers_for_http_request()
+    
+    # Send request with trace context
+    response = requests.post(
+        "https://api.example.com/predict",
+        headers=headers,
+        json={"input": "data"}
+    )
+    return response.json()
+
+# On the receiving service
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    # Extract trace context from headers
+    mlflow.tracing.set_tracing_context_from_http_request_headers(
+        request.headers
+    )
+    
+    # Spans created here are part of the distributed trace
+    with mlflow.start_span("prediction"):
+        result = model.predict(request.json["input"])
+        return {"result": result}
+```
+
+### Multi-threading
+
+```python
+import mlflow
+from concurrent.futures import ThreadPoolExecutor
+
+@mlflow.trace
+def parent_function():
+    # Get current span to propagate to threads
+    current_span = mlflow.get_current_active_span()
+    
+    def worker(i):
+        # Create child span in thread
+        child_span = mlflow.start_span_no_context(
+            name=f"worker_{i}",
+            parent_span=current_span
+        )
+        # Do work...
+        child_span.end(outputs={"result": i})
+    
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        executor.map(worker, range(10))
+```
+
+## Configuration
+
+### Trace Sampling
+
+Control trace sampling ratio:
+
+```python
+import os
+
+# Sample 50% of traces
+os.environ["MLFLOW_TRACE_SAMPLING_RATIO"] = "0.5"
+
+mlflow.tracing.enable()
+
+# Or per-function sampling
+@mlflow.trace(sampling_ratio_override=0.1)  # 10% sampling
+def rarely_traced_function():
+    return "result"
+```
+
+### Disable Tracing
+
+```python
+import mlflow
+
+# Disable tracing globally
+mlflow.tracing.disable()
+
+# Re-enable
+mlflow.tracing.enable()
+```
+
+### Configure Trace Display
+
+```python
+# In notebooks, disable inline display
+mlflow.tracing.disable_notebook_display()
+
+# Re-enable
+mlflow.tracing.enable_notebook_display()
+```
+
+## Token Usage Tracking
+
+MLflow automatically captures token usage from LLM calls:
+
+```python
+import mlflow
+import openai
+
+mlflow.tracing.enable()
+
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+
+trace = mlflow.get_trace(mlflow.get_last_active_trace_id())
+
+# Access token usage
+for span in trace.data.spans:
+    if span.span_type == "LLM":
+        print(f"Prompt tokens: {span.attributes.get('mlflow.tokens.prompt')}")
+        print(f"Completion tokens: {span.attributes.get('mlflow.tokens.completion')}")
+        print(f"Total tokens: {span.attributes.get('mlflow.tokens.total')}")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Descriptive Span Names">
+    Name spans clearly to make traces easy to understand:
+    ```python
+    @mlflow.trace(name="retrieve_customer_context")
+    def get_context(customer_id):
+        ...
+    ```
+  </Accordion>
+  
+  <Accordion title="Set Appropriate Span Types">
+    Use standard span types for better visualization:
+    ```python
+    @mlflow.trace(span_type="RETRIEVER")
+    def search_docs():
+        ...
+    ```
+  </Accordion>
+  
+  <Accordion title="Capture Important Attributes">
+    Add metadata that helps debugging and analysis:
+    ```python
+    span.set_attributes({
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "user_id": user_id
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Exceptions Properly">
+    Traces automatically capture exceptions, but you can add context:
+    ```python
+    with mlflow.start_span("risky_operation") as span:
+        try:
+            do_work()
+        except ValueError as e:
+            span.add_event(SpanEvent.from_exception(e))
+            span.set_attribute("error_type", "validation")
+            raise
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Examples
+
+### RAG Application Tracing
+
+```python
+import mlflow
+import openai
+from typing import List
+
+mlflow.tracing.enable()
+
+@mlflow.trace(span_type="CHAIN")
+def rag_pipeline(question: str) -> str:
+    """Complete RAG pipeline with tracing"""
+    context = retrieve_context(question)
+    answer = generate_answer(question, context)
+    return answer
+
+@mlflow.trace(span_type="RETRIEVER")
+def retrieve_context(query: str) -> List[str]:
+    """Retrieve relevant context"""
+    # Simulate vector search
+    results = vector_store.search(query, k=3)
+    return [doc.content for doc in results]
+
+@mlflow.trace(span_type="LLM")
+def generate_answer(question: str, context: List[str]) -> str:
+    """Generate answer using LLM"""
+    client = openai.OpenAI()
+    
+    prompt = f"""Context: {' '.join(context)}
+    Question: {question}
+    Answer:"""
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    
+    return response.choices[0].message.content
+
+# Use the pipeline
+answer = rag_pipeline("What is MLflow?")
+
+# View the trace
+trace = mlflow.get_trace(mlflow.get_last_active_trace_id())
+print(trace.to_json(pretty=True))
+```
+
+### Agent with Tool Calls
+
+```python
+import mlflow
+import openai
+from typing import Any, Dict
+
+@mlflow.trace(span_type="AGENT")
+def run_agent(user_query: str) -> str:
+    """Agent that can use tools"""
+    client = openai.OpenAI()
+    
+    messages = [{"role": "user", "content": user_query}]
+    
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"location": {"type": "string"}}
+                }
+            }
+        }
+    ]
+    
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        tools=tools
+    )
+    
+    # Handle tool calls
+    if response.choices[0].message.tool_calls:
+        for tool_call in response.choices[0].message.tool_calls:
+            result = execute_tool(tool_call)
+            messages.append({
+                "role": "tool",
+                "content": str(result),
+                "tool_call_id": tool_call.id
+            })
+        
+        # Get final response
+        final_response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        )
+        return final_response.choices[0].message.content
+    
+    return response.choices[0].message.content
+
+@mlflow.trace(span_type="TOOL")
+def execute_tool(tool_call: Any) -> Dict[str, Any]:
+    """Execute a tool call"""
+    if tool_call.function.name == "get_weather":
+        return {"temperature": 72, "condition": "sunny"}
+    return {}
+
+# Run agent
+result = run_agent("What's the weather in San Francisco?")
+```
+
+## Troubleshooting
+
+### Traces Not Appearing
+
+```python
+# Check if tracing is enabled
+from mlflow.tracing.provider import is_tracing_enabled
+print(f"Tracing enabled: {is_tracing_enabled()}")
+
+# Enable tracing
+mlflow.tracing.enable()
+
+# Check experiment
+print(f"Active experiment: {mlflow.get_experiment(mlflow.get_experiment_id())}")
+```
+
+### High Memory Usage
+
+```python
+# Reduce sampling ratio
+import os
+os.environ["MLFLOW_TRACE_SAMPLING_RATIO"] = "0.1"  # Only 10% of traces
+```
+
+### Debug Logging
+
+```python
+import logging
+logging.getLogger("mlflow.tracing").setLevel(logging.DEBUG)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation" icon="chart-bar" href="/genai/evaluation">
+    Evaluate your traced LLM applications
+  </Card>
+  <Card title="Agents" icon="robot" href="/genai/agents">
+    Monitor and debug agent workflows
+  </Card>
+</CardGroup>

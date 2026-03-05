@@ -1,0 +1,261 @@
+---
+title: OpenAI
+description: MLflow integration for OpenAI models
+---
+
+The `mlflow.openai` module provides an API for logging and loading OpenAI models. This integration supports tracing and model logging for OpenAI's chat completions, text completions, and embeddings.
+
+## Installation
+
+```bash
+pip install mlflow[openai]
+```
+
+## Autologging
+
+### mlflow.openai.autolog()
+
+Enables (or disables) and configures autologging from OpenAI to MLflow.
+
+<Note>
+Requires OpenAI version >= 1.0.0
+</Note>
+
+<ParamField path="disable" type="bool" default="False">
+  If `True`, disables the OpenAI autologging integration. If `False`, enables the OpenAI autologging integration.
+</ParamField>
+
+<ParamField path="exclusive" type="bool" default="False">
+  If `True`, autologged content is not logged to user-created fluent runs. If `False`, autologged content is logged to the active fluent run, which may be user-created.
+</ParamField>
+
+<ParamField path="disable_for_unsupported_versions" type="bool" default="False">
+  If `True`, disable autologging for versions of OpenAI that have not been tested against this version of the MLflow client or are incompatible.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If `True`, suppress all event logs and warnings from MLflow during OpenAI autologging. If `False`, show all events and warnings during OpenAI autologging.
+</ParamField>
+
+<ParamField path="log_traces" type="bool" default="True">
+  If `True`, traces are logged for OpenAI models. If `False`, no traces are collected during inference.
+</ParamField>
+
+<ParamField path="disable_openai_agent_tracer" type="bool" default="True">
+  If `True`, disable the OpenAI Agent SDK tracer. If `False`, enable the OpenAI Agent SDK tracer.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+
+# Enable autologging
+mlflow.openai.autolog()
+```
+
+## Model Logging
+
+### mlflow.openai.log_model()
+
+Log an OpenAI model as an MLflow artifact for the current run.
+
+<Warning>
+Deprecated since version 3.8.0. Use `mlflow.genai.register_prompt` instead.
+</Warning>
+
+<ParamField path="model" type="str | openai.Model" required>
+  The OpenAI model name or reference instance, e.g., `"gpt-4o-mini"` or `openai.Model.retrieve("gpt-4o-mini")`.
+</ParamField>
+
+<ParamField path="task" type="str | object" required>
+  The task the model is performing, e.g., `openai.chat.completions` or `"chat.completions"`.
+</ParamField>
+
+<ParamField path="name" type="str">
+  The name to use for logging the model artifact.
+</ParamField>
+
+<ParamField path="artifact_path" type="str">
+  Deprecated. Use `name` instead.
+</ParamField>
+
+<ParamField path="conda_env" type="str | dict">
+  Either a dictionary representation of a Conda environment or the path to a conda environment yaml file.
+</ParamField>
+
+<ParamField path="code_paths" type="list[str]">
+  A list of local filesystem paths to Python file dependencies (or directories containing file dependencies).
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under `registered_model_name`, also creating a registered model if one with the given name does not exist.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  A ModelSignature object that describes model input and output schema.
+</ParamField>
+
+<ParamField path="input_example" type="pd.DataFrame | np.ndarray | dict | list">
+  Input example provides one or several instances of valid model input.
+</ParamField>
+
+<ParamField path="await_registration_for" type="int" default="300">
+  Number of seconds to wait for the model version to finish being created and is in READY status. By default, the function waits for five minutes. Specify 0 or None to skip waiting.
+</ParamField>
+
+<ParamField path="pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="extra_pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings to add to the model requirements, or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="metadata" type="dict">
+  Custom metadata dictionary passed to the model and stored in the MLmodel file.
+</ParamField>
+
+<ParamField path="prompts" type="list[str | Prompt]">
+  A list of prompts to associate with the model.
+</ParamField>
+
+<ParamField path="params" type="dict[str, Any]">
+  Additional parameters to pass to the model.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any]">
+  Tags to associate with the model.
+</ParamField>
+
+<ParamField path="model_type" type="str">
+  The type of the model.
+</ParamField>
+
+<ParamField path="step" type="int" default="0">
+  The training step at which the model was logged.
+</ParamField>
+
+<ParamField path="model_id" type="str">
+  A unique identifier for the model.
+</ParamField>
+
+<ParamField path="**kwargs">
+  Keyword arguments specific to the OpenAI task, such as `messages` or `top_p` value to use for chat completion.
+</ParamField>
+
+**Returns:** A `ModelInfo` instance that contains the metadata of the logged model.
+
+**Example (Chat Completions):**
+
+```python
+import mlflow
+import openai
+import pandas as pd
+
+with mlflow.start_run():
+    info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        messages=[{"role": "user", "content": "Tell me a joke about {animal}."}],
+        name="model",
+    )
+    model = mlflow.pyfunc.load_model(info.model_uri)
+    df = pd.DataFrame({"animal": ["cats", "dogs"]})
+    print(model.predict(df))
+```
+
+**Example (Embeddings):**
+
+```python
+import mlflow
+import openai
+
+with mlflow.start_run():
+    info = mlflow.openai.log_model(
+        model="text-embedding-ada-002",
+        task=openai.embeddings,
+        name="embeddings",
+    )
+    model = mlflow.pyfunc.load_model(info.model_uri)
+    print(model.predict(["hello", "world"]))
+```
+
+### mlflow.openai.save_model()
+
+Save an OpenAI model to a path on the local file system.
+
+<Warning>
+Deprecated since version 3.8.0. Use `mlflow.genai.register_prompt` instead.
+</Warning>
+
+Accepts the same parameters as `log_model()`, with `path` instead of `name`:
+
+<ParamField path="path" type="str" required>
+  Local path where the model is to be saved.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.save_model(
+    model="gpt-4o-mini",
+    task=openai.chat.completions,
+    messages=[{"role": "user", "content": "Tell me a joke."}],
+    path="model",
+)
+```
+
+## Model Loading
+
+### mlflow.openai.load_model()
+
+Load an OpenAI model from a local file or a run.
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes include:
+  - `/Users/me/path/to/local/model`
+  - `relative/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+</ParamField>
+
+<ParamField path="dst_path" type="str">
+  The local filesystem path to which to download the model artifact. This directory must already exist. If unspecified, a local output path will be created.
+</ParamField>
+
+**Returns:** A dictionary representing the OpenAI model.
+
+**Example:**
+
+```python
+import mlflow
+
+model = mlflow.openai.load_model("runs:/abc123/model")
+print(model)
+```
+
+## Supported Tasks
+
+The OpenAI integration supports the following task types:
+
+- **chat.completions** - Chat-based completions (e.g., GPT-4, GPT-3.5-turbo)
+- **completions** - Text completions (legacy models)
+- **embeddings** - Text embeddings (e.g., text-embedding-ada-002)
+
+## Credential Management on Databricks
+
+<Warning>
+Specifying secrets for model serving with `MLFLOW_OPENAI_SECRET_SCOPE` is deprecated. Use [secrets-based environment variables](https://docs.databricks.com/en/machine-learning/model-serving/store-env-variable-model-serving.html) instead.
+</Warning>
+
+When logging a model on Databricks, you can configure OpenAI credentials using the `MLFLOW_OPENAI_SECRET_SCOPE` environment variable. The following secrets are supported:
+
+- `OPENAI_API_BASE`
+- `OPENAI_API_KEY`
+- `OPENAI_API_KEY_PATH`
+- `OPENAI_API_TYPE`
+- `OPENAI_ORGANIZATION`

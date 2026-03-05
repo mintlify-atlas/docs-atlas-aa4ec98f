@@ -1,0 +1,418 @@
+---
+title: Server Configuration
+description: Advanced configuration options for the MLflow tracking server
+---
+
+## Overview
+
+The MLflow server can be configured through command-line arguments, environment variables, or configuration files. This guide covers all available configuration options.
+
+## Core Configuration
+
+### Backend Store URI
+
+The backend store is where MLflow stores experiment and run metadata.
+
+<ParamField path="--backend-store-uri" type="string" default="./mlruns">
+  URI for the backend store. Supports:
+  - SQLite: `sqlite:///path/to/file.db`
+  - PostgreSQL: `postgresql://user:password@host/database`
+  - MySQL: `mysql+pymysql://user:password@host/database`
+  - File system: `file:///path/to/directory`
+</ParamField>
+
+**Examples:**
+
+<CodeGroup>
+```bash SQLite
+mlflow server --backend-store-uri sqlite:///mlflow.db
+```
+
+```bash PostgreSQL
+mlflow server --backend-store-uri postgresql://mlflow:password@localhost:5432/mlflowdb
+```
+
+```bash MySQL
+mlflow server --backend-store-uri mysql+pymysql://mlflow:password@localhost:3306/mlflowdb
+```
+
+```bash File System
+mlflow server --backend-store-uri file:///data/mlruns
+```
+</CodeGroup>
+
+### Registry Store URI
+
+Separate storage for the model registry (optional).
+
+<ParamField path="--registry-store-uri" type="string">
+  URI for the model registry. If not specified, uses the backend store URI.
+</ParamField>
+
+```bash
+mlflow server \
+  --backend-store-uri postgresql://user:password@localhost/tracking \
+  --registry-store-uri postgresql://user:password@localhost/registry
+```
+
+### Default Artifact Root
+
+Location where artifacts are stored for new experiments.
+
+<ParamField path="--default-artifact-root" type="string">
+  Default artifact storage location. Supports:
+  - Local file system: `./artifacts` or `file:///path/to/artifacts`
+  - S3: `s3://bucket-name/path`
+  - Azure Blob: `wasbs://container@account.blob.core.windows.net/path`
+  - Google Cloud Storage: `gs://bucket-name/path`
+  - HDFS: `hdfs://namenode:port/path`
+</ParamField>
+
+**Examples:**
+
+<CodeGroup>
+```bash S3
+mlflow server \
+  --default-artifact-root s3://my-mlflow-bucket/artifacts
+```
+
+```bash Azure Blob
+mlflow server \
+  --default-artifact-root wasbs://mlflow@mystorageaccount.blob.core.windows.net/artifacts
+```
+
+```bash Google Cloud Storage
+mlflow server \
+  --default-artifact-root gs://my-mlflow-bucket/artifacts
+```
+
+```bash Local Path
+mlflow server \
+  --default-artifact-root /mnt/nfs/mlflow-artifacts
+```
+</CodeGroup>
+
+## Network Configuration
+
+### Host and Port
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Hostname or IP address to bind the server to.
+</ParamField>
+
+<ParamField path="--port" type="integer" default="5000">
+  Port number for the server.
+</ParamField>
+
+```bash
+# Listen on all interfaces
+mlflow server --host 0.0.0.0 --port 8080
+
+# Listen on specific interface
+mlflow server --host 192.168.1.100 --port 5000
+```
+
+<Warning>
+When using `--host 0.0.0.0`, always configure security options like `--allowed-hosts` and `--cors-allowed-origins`.
+</Warning>
+
+### Workers
+
+<ParamField path="--workers" type="integer" default="4">
+  Number of worker processes to handle requests.
+</ParamField>
+
+```bash
+# Increase workers for production
+mlflow server --workers 16
+```
+
+<Note>
+A good starting point is `2 × number of CPU cores + 1`. Monitor CPU and memory usage to adjust.
+</Note>
+
+## Security Configuration
+
+### Allowed Hosts
+
+<ParamField path="--allowed-hosts" type="string">
+  Comma-separated list of allowed Host header values. Prevents DNS rebinding attacks.
+</ParamField>
+
+```bash
+mlflow server \
+  --host 0.0.0.0 \
+  --allowed-hosts "mlflow.company.com,192.168.*,*.internal.company.com"
+```
+
+**Special values:**
+- `*` - Allow all hosts (not recommended for production)
+- Default: localhost and private IP ranges
+
+### CORS Configuration
+
+<ParamField path="--cors-allowed-origins" type="string">
+  Comma-separated list of allowed CORS origins.
+</ParamField>
+
+```bash
+mlflow server \
+  --cors-allowed-origins "https://app.company.com,https://notebook.company.com"
+```
+
+<Warning>
+Never use `*` for CORS origins in production. Always specify exact origins.
+</Warning>
+
+### Clickjacking Protection
+
+<ParamField path="--x-frame-options" type="string" default="SAMEORIGIN">
+  X-Frame-Options header value. Options: `DENY`, `SAMEORIGIN`, or `NONE`.
+</ParamField>
+
+```bash
+# Prevent any iframe embedding
+mlflow server --x-frame-options DENY
+
+# Allow same-origin iframes
+mlflow server --x-frame-options SAMEORIGIN
+```
+
+### Disable Security Middleware
+
+<ParamField path="--disable-security-middleware" type="boolean" default="false">
+  Disable all security middleware (not recommended).
+</ParamField>
+
+```bash
+# Only for testing!
+mlflow server --disable-security-middleware
+```
+
+<Warning>
+Disabling security middleware removes protection against DNS rebinding, CORS attacks, and clickjacking. Only use for local testing.
+</Warning>
+
+## Artifact Configuration
+
+### Serve Artifacts
+
+<ParamField path="--serve-artifacts" type="boolean" default="false">
+  Enable artifact proxying through the tracking server.
+</ParamField>
+
+```bash
+mlflow server \
+  --serve-artifacts \
+  --artifacts-destination s3://my-bucket/artifacts
+```
+
+### Artifacts Destination
+
+<ParamField path="--artifacts-destination" type="string">
+  Base artifact location for proxied artifact requests.
+</ParamField>
+
+```bash
+mlflow server \
+  --serve-artifacts \
+  --artifacts-destination s3://production-artifacts/mlflow
+```
+
+### Artifacts-Only Mode
+
+<ParamField path="--artifacts-only" type="boolean" default="false">
+  Run server in artifacts-only mode (disables tracking functionality).
+</ParamField>
+
+```bash
+mlflow server \
+  --artifacts-only \
+  --artifacts-destination s3://my-bucket/artifacts \
+  --host 0.0.0.0
+```
+
+## Server Runtime Configuration
+
+### Static Prefix
+
+<ParamField path="--static-prefix" type="string">
+  URL prefix for the UI (must start with `/`, cannot end with `/`).
+</ParamField>
+
+```bash
+# Host UI at http://localhost:5000/mlflow
+mlflow server --static-prefix /mlflow
+```
+
+<Note>
+Useful when hosting MLflow behind a reverse proxy at a subpath.
+</Note>
+
+### Server Application
+
+<ParamField path="--app-name" type="string">
+  Custom application name to run (advanced usage).
+</ParamField>
+
+```bash
+# Run with basic authentication
+mlflow server --app-name basic-auth
+```
+
+### Server Options
+
+Choose your ASGI/WSGI server:
+
+<CodeGroup>
+```bash Uvicorn (Default)
+mlflow server --uvicorn-opts "--timeout-keep-alive 120 --log-level info"
+```
+
+```bash Gunicorn (Unix only)
+mlflow server --gunicorn-opts "--timeout 120 --log-level debug"
+```
+
+```bash Waitress (Windows)
+mlflow server --waitress-opts "--threads=8"
+```
+</CodeGroup>
+
+### Development Mode
+
+<ParamField path="--dev" type="boolean" default="false">
+  Enable development mode with auto-reload and debug logging.
+</ParamField>
+
+```bash
+mlflow server --dev
+```
+
+<Warning>
+Development mode is not supported on Windows and should never be used in production.
+</Warning>
+
+## Advanced Configuration
+
+### Prometheus Monitoring
+
+<ParamField path="--expose-prometheus" type="string">
+  Directory path to store Prometheus metrics.
+</ParamField>
+
+```bash
+mlflow server --expose-prometheus /var/lib/mlflow/metrics
+```
+
+Metrics will be available at `http://localhost:5000/metrics`.
+
+### Secrets Cache
+
+Configure server-side secrets caching:
+
+<ParamField path="--secrets-cache-ttl" type="integer" default="60">
+  Time-to-live for cached secrets in seconds (range: 10-300).
+</ParamField>
+
+<ParamField path="--secrets-cache-max-size" type="integer" default="1000">
+  Maximum number of cached secret entries (range: 1-10000).
+</ParamField>
+
+```bash
+mlflow server \
+  --secrets-cache-ttl 120 \
+  --secrets-cache-max-size 5000
+```
+
+### Workspace Configuration
+
+<ParamField path="--enable-workspaces" type="boolean" default="false">
+  Enable workspace mode for logical isolation.
+</ParamField>
+
+<ParamField path="--workspace-store-uri" type="string">
+  Workspace provider backend URI (optional).
+</ParamField>
+
+```bash
+mlflow server \
+  --enable-workspaces \
+  --workspace-store-uri postgresql://user:password@localhost/workspaces
+```
+
+## Environment Variables
+
+All configuration options have corresponding environment variables:
+
+| CLI Option | Environment Variable |
+|------------|---------------------|
+| `--backend-store-uri` | `MLFLOW_BACKEND_STORE_URI` |
+| `--default-artifact-root` | `MLFLOW_DEFAULT_ARTIFACT_ROOT` |
+| `--registry-store-uri` | `MLFLOW_REGISTRY_STORE_URI` |
+| `--serve-artifacts` | `MLFLOW_SERVE_ARTIFACTS` |
+| `--artifacts-destination` | `MLFLOW_ARTIFACTS_DESTINATION` |
+| `--allowed-hosts` | `MLFLOW_SERVER_ALLOWED_HOSTS` |
+| `--cors-allowed-origins` | `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` |
+| `--x-frame-options` | `MLFLOW_SERVER_X_FRAME_OPTIONS` |
+| `--disable-security-middleware` | `MLFLOW_SERVER_DISABLE_SECURITY_MIDDLEWARE` |
+| `--expose-prometheus` | `MLFLOW_EXPOSE_PROMETHEUS` |
+| `--gunicorn-opts` | `MLFLOW_GUNICORN_OPTS` |
+| `--uvicorn-opts` | `MLFLOW_UVICORN_OPTS` |
+
+### Example Configuration
+
+```bash .env
+MLFLOW_BACKEND_STORE_URI=postgresql://mlflow:password@db-server/mlflow
+MLFLOW_DEFAULT_ARTIFACT_ROOT=s3://mlflow-artifacts/production
+MLFLOW_REGISTRY_STORE_URI=postgresql://mlflow:password@db-server/mlflow
+MLFLOW_SERVER_ALLOWED_HOSTS=mlflow.company.com,*.internal.company.com
+MLFLOW_SERVER_CORS_ALLOWED_ORIGINS=https://app.company.com
+MLFLOW_EXPOSE_PROMETHEUS=/var/lib/mlflow/metrics
+```
+
+```bash
+mlflow server --env-file .env --host 0.0.0.0 --workers 16
+```
+
+## Complete Production Example
+
+Here's a complete production configuration:
+
+```bash
+mlflow server \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --workers 16 \
+  --backend-store-uri postgresql://mlflow:${DB_PASSWORD}@db-server:5432/mlflow \
+  --registry-store-uri postgresql://mlflow:${DB_PASSWORD}@db-server:5432/mlflow \
+  --default-artifact-root s3://prod-mlflow-artifacts/mlflow \
+  --serve-artifacts \
+  --artifacts-destination s3://prod-mlflow-artifacts/mlflow \
+  --allowed-hosts "mlflow.company.com" \
+  --cors-allowed-origins "https://app.company.com,https://notebook.company.com" \
+  --x-frame-options DENY \
+  --expose-prometheus /var/lib/mlflow/metrics \
+  --secrets-cache-ttl 120 \
+  --secrets-cache-max-size 5000 \
+  --uvicorn-opts "--timeout-keep-alive 120 --log-level info"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/server/authentication">
+    Set up user authentication and access control
+  </Card>
+  
+  <Card title="Database Setup" icon="database" href="/server/database">
+    Configure and optimize backend databases
+  </Card>
+  
+  <Card title="Security Guide" icon="shield" href="https://mlflow.org/docs/latest/tracking/server-security.html">
+    Comprehensive security configuration guide
+  </Card>
+  
+  <Card title="Deployment" icon="rocket" href="https://mlflow.org/docs/latest/deployment/">
+    Deploy MLflow to production environments
+  </Card>
+</CardGroup>

@@ -1,0 +1,712 @@
+---
+title: Team Collaboration Best Practices
+description: Best practices for enabling effective collaboration across ML teams using MLflow
+---
+
+## Overview
+
+Successful machine learning projects require effective collaboration between data scientists, ML engineers, and stakeholders. MLflow provides features that enable teams to share experiments, models, and insights efficiently.
+
+## Workspace Organization
+
+### Structure Workspaces by Team or Project
+
+Organize workspaces to match your team structure:
+
+```python
+import mlflow
+
+# Create team-specific workspaces
+mlflow.create_workspace(
+    name="data-science-team",
+    description="Core data science team experiments"
+)
+
+mlflow.create_workspace(
+    name="ml-platform-team",
+    description="ML platform and infrastructure experiments"
+)
+
+mlflow.create_workspace(
+    name="product-recommendations",
+    description="Product recommendation project workspace"
+)
+```
+
+<Accordion title="Workspace organization strategies">
+Common workspace patterns:
+- **By team**: Separate workspaces for each team (NLP, Computer Vision, etc.)
+- **By project**: One workspace per major project or product
+- **By environment**: Separate dev, staging, production workspaces
+- **Hybrid**: Team workspaces with project sub-organization via experiment naming
+</Accordion>
+
+### Set Workspace Context
+
+Make it easy for team members to work in the right workspace:
+
+```python
+import mlflow
+
+# Set active workspace
+mlflow.set_workspace("product-recommendations")
+
+# List available workspaces
+workspaces = mlflow.list_workspaces()
+for ws in workspaces:
+    print(f"{ws.name}: {ws.description}")
+
+# Get current workspace
+current_workspace = mlflow.get_workspace()
+print(f"Working in: {current_workspace.name}")
+```
+
+## Shared Experiment Guidelines
+
+### Establish Naming Conventions
+
+Define and document clear naming conventions for your team:
+
+```python
+import mlflow
+
+# Recommended convention: /team/project/phase/task
+mlflow.set_experiment("/nlp-team/sentiment-analysis/development/baseline")
+mlflow.set_experiment("/nlp-team/sentiment-analysis/development/bert-finetuning")
+mlflow.set_experiment("/nlp-team/sentiment-analysis/production/monitoring")
+
+# Alternative: Flat with prefixes
+mlflow.set_experiment("nlp_sentiment_baseline_v1")
+mlflow.set_experiment("nlp_sentiment_bert_v1")
+```
+
+### Document Experiments with Tags
+
+Use tags to make experiments discoverable:
+
+```python
+import mlflow
+
+# Create experiment with comprehensive tags
+experiment_id = mlflow.create_experiment(
+    name="customer-churn-prediction",
+    tags={
+        "team": "data-science",
+        "owner": "alice@company.com",
+        "project": "customer-retention",
+        "status": "active",
+        "priority": "high",
+        "sprint": "2024-Q1-S3",
+        "jira_ticket": "ML-1234"
+    }
+)
+
+# Update experiment description
+from mlflow.tracking import MlflowClient
+client = MlflowClient()
+
+# Note: Use experiment tags for metadata as descriptions are set at creation
+mlflow.set_experiment("customer-churn-prediction")
+mlflow.set_experiment_tag("description", """Predict customer churn using behavioral features.
+Goal: >85% recall, <5% false positive rate
+Timeline: 2024 Q1
+Stakeholder: Product Team""")
+```
+
+<Accordion title="Essential experiment tags">
+Recommended tags for team collaboration:
+- **owner**: Primary contact (email or username)
+- **team**: Owning team name
+- **status**: active, archived, deprecated, completed
+- **priority**: low, medium, high, critical
+- **project**: Parent project or initiative
+- **sprint/milestone**: Timeline information
+- **ticket_id**: Link to project management tool
+- **documentation**: Link to detailed docs
+</Accordion>
+
+## Run-Level Collaboration
+
+### Write Informative Run Notes
+
+Use run notes to communicate findings:
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    # Your training code
+    accuracy = train_and_evaluate()
+    mlflow.log_metric("accuracy", accuracy)
+    
+    # Add detailed notes
+    notes = """
+    ## Key Findings
+    - Increased learning rate improved convergence by 20%
+    - Model struggles with class imbalance (see confusion matrix)
+    - Recommend trying focal loss in next iteration
+    
+    ## Next Steps
+    - [ ] Implement class weighting
+    - [ ] Try data augmentation
+    - [ ] Compare with ensemble approach
+    
+    ## Questions
+    - Should we prioritize precision or recall?
+    - Is 85% accuracy acceptable for production?
+    """
+    mlflow.set_tag("mlflow.note.content", notes)
+```
+
+### Tag Runs for Easy Discovery
+
+Make important runs easy to find:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Your training code
+    model = train_model()
+    accuracy = evaluate_model(model)
+    
+    mlflow.log_metric("accuracy", accuracy)
+    
+    # Tag for discoverability
+    mlflow.set_tags({
+        "run_type": "baseline" if is_baseline else "improvement",
+        "ready_for_review": "true",
+        "reviewer": "bob@company.com",
+        "production_candidate": "true" if accuracy > 0.90 else "false",
+        "approved_by": "",  # To be filled after review
+        "deployed": "false"
+    })
+```
+
+### Use Consistent Parameter Naming
+
+Standardize parameter names across the team:
+
+```python
+import mlflow
+
+# Team standard parameter names
+STANDARD_PARAMS = {
+    "learning_rate",  # not lr, alpha, or learning-rate
+    "batch_size",     # not batch or batchsize
+    "num_epochs",     # not epochs or n_epochs
+    "optimizer",      # not optim or opt
+    "model_type",     # not model or architecture
+    "random_seed"     # not seed or random_state
+}
+
+with mlflow.start_run():
+    params = {
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "num_epochs": 100,
+        "optimizer": "adam",
+        "model_type": "resnet50",
+        "random_seed": 42
+    }
+    mlflow.log_params(params)
+```
+
+<Accordion title="Why consistent naming matters">
+Consistent parameter naming enables:
+- Easy comparison across runs and experiments
+- Programmatic filtering and search
+- Automated hyperparameter analysis
+- Clear communication in team discussions
+- Reusable analysis scripts and notebooks
+</Accordion>
+
+## Model Registry Collaboration
+
+### Establish Model Promotion Workflows
+
+Define clear stages for model progression:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+class ModelPromotion:
+    """Standardized model promotion workflow"""
+    
+    def request_staging(self, model_name, version, requester):
+        """Request promotion to staging"""
+        client.set_model_version_tag(
+            name=model_name,
+            version=version,
+            key="promotion_request",
+            value="staging"
+        )
+        client.set_model_version_tag(
+            name=model_name,
+            version=version,
+            key="requested_by",
+            value=requester
+        )
+        print(f"Staging promotion requested for {model_name} v{version}")
+    
+    def approve_staging(self, model_name, version, approver, metrics_validated=True):
+        """Approve and promote to staging"""
+        if not metrics_validated:
+            raise ValueError("Metrics must be validated before promotion")
+        
+        # Set staging alias
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="staging",
+            version=version
+        )
+        
+        client.set_model_version_tag(
+            name=model_name,
+            version=version,
+            key="staging_approved_by",
+            value=approver
+        )
+        client.set_model_version_tag(
+            name=model_name,
+            version=version,
+            key="staging_date",
+            value=pd.Timestamp.now().isoformat()
+        )
+        print(f"{model_name} v{version} promoted to staging")
+
+promotion = ModelPromotion()
+promotion.request_staging("fraud_detector", "5", "alice@company.com")
+promotion.approve_staging("fraud_detector", "5", "bob@company.com")
+```
+
+### Document Model Ownership and Reviews
+
+Track who is responsible for each model:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set model-level metadata
+client.update_registered_model(
+    name="recommendation_engine",
+    description="""
+    Product recommendation system using collaborative filtering.
+    
+    Owner: ml-recommendations@company.com
+    Primary Contact: alice@company.com
+    Reviewers: bob@company.com, charlie@company.com
+    
+    Business Metrics:
+    - Target CTR: >5%
+    - Target Conversion: >2%
+    
+    SLA: 99.9% uptime, <100ms p95 latency
+    Monitoring: DataDog dashboard #1234
+    """
+)
+
+# Tag specific version with review info
+client.set_model_version_tag(
+    name="recommendation_engine",
+    version="8",
+    key="reviewed_by",
+    value="bob@company.com,charlie@company.com"
+)
+client.set_model_version_tag(
+    name="recommendation_engine",
+    version="8",
+    key="review_date",
+    value="2024-03-15"
+)
+client.set_model_version_tag(
+    name="recommendation_engine",
+    version="8",
+    key="review_status",
+    value="approved"
+)
+```
+
+### Implement Model Review Checklists
+
+Create standardized review processes:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+def review_model_checklist(model_name, version):
+    """Model review checklist"""
+    client = MlflowClient()
+    
+    checklist = {
+        "metrics_validated": False,
+        "bias_tested": False,
+        "fairness_evaluated": False,
+        "edge_cases_tested": False,
+        "documentation_complete": False,
+        "dependencies_reviewed": False,
+        "security_scanned": False,
+        "performance_benchmarked": False
+    }
+    
+    # Log checklist
+    model_version = client.get_model_version(model_name, version)
+    with mlflow.start_run(run_id=model_version.run_id):
+        mlflow.log_dict(checklist, "review_checklist.json")
+    
+    return checklist
+
+# After review
+def complete_review(model_name, version, reviewer, checklist):
+    """Complete model review"""
+    client = MlflowClient()
+    
+    if not all(checklist.values()):
+        incomplete = [k for k, v in checklist.items() if not v]
+        raise ValueError(f"Review incomplete. Missing: {incomplete}")
+    
+    client.set_model_version_tag(
+        name=model_name,
+        version=version,
+        key="review_complete",
+        value="true"
+    )
+    client.set_model_version_tag(
+        name=model_name,
+        version=version,
+        key="reviewed_by",
+        value=reviewer
+    )
+```
+
+<Accordion title="Model review checklist items">
+Comprehensive review should include:
+- **Metrics validation**: Performance meets requirements
+- **Bias testing**: Fairness across demographic groups
+- **Edge cases**: Handles unusual inputs gracefully
+- **Documentation**: Model card, API docs, deployment guide
+- **Dependencies**: All dependencies documented and approved
+- **Security**: No known vulnerabilities in dependencies
+- **Performance**: Latency and throughput acceptable
+- **Monitoring**: Alerts and dashboards configured
+</Accordion>
+
+## Shared Resources and Templates
+
+### Create Reusable Training Templates
+
+Share common training patterns:
+
+```python
+import mlflow
+from abc import ABC, abstractmethod
+
+class MLflowExperiment(ABC):
+    """Base class for team experiments"""
+    
+    def __init__(self, experiment_name, owner):
+        self.experiment_name = experiment_name
+        self.owner = owner
+        mlflow.set_experiment(experiment_name)
+    
+    def run(self, run_name, params):
+        """Run experiment with standard setup"""
+        with mlflow.start_run(run_name=run_name):
+            # Standard setup
+            mlflow.set_tags({
+                "owner": self.owner,
+                "framework": self.get_framework(),
+                "experiment_type": self.__class__.__name__
+            })
+            mlflow.log_params(params)
+            
+            # Custom training logic
+            metrics = self.train(params)
+            mlflow.log_metrics(metrics)
+            
+            # Standard logging
+            model = self.get_model()
+            mlflow.sklearn.log_model(model, "model")
+            
+            return metrics
+    
+    @abstractmethod
+    def train(self, params):
+        """Implement training logic"""
+        pass
+    
+    @abstractmethod
+    def get_model(self):
+        """Return trained model"""
+        pass
+    
+    @abstractmethod
+    def get_framework(self):
+        """Return framework name"""
+        pass
+
+# Usage
+class ChurnPredictionExperiment(MLflowExperiment):
+    def train(self, params):
+        # Training logic
+        return {"accuracy": 0.92}
+    
+    def get_model(self):
+        return trained_model
+    
+    def get_framework(self):
+        return "sklearn"
+
+experiment = ChurnPredictionExperiment(
+    "customer-churn",
+    "alice@company.com"
+)
+experiment.run("baseline_v1", {"max_depth": 5})
+```
+
+### Share Common Utilities
+
+Create shared libraries for common operations:
+
+```python
+# team_mlflow_utils.py
+import mlflow
+from mlflow.tracking import MlflowClient
+
+class TeamMLflowUtils:
+    """Shared utilities for team MLflow operations"""
+    
+    @staticmethod
+    def find_best_run(experiment_name, metric="accuracy", ascending=False):
+        """Find best run in experiment by metric"""
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        runs = mlflow.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            order_by=[f"metrics.{metric} {'ASC' if ascending else 'DESC'}"]
+        )
+        return runs.iloc[0] if len(runs) > 0 else None
+    
+    @staticmethod
+    def compare_runs(run_ids, metrics):
+        """Compare multiple runs across metrics"""
+        client = MlflowClient()
+        comparison = []
+        
+        for run_id in run_ids:
+            run = client.get_run(run_id)
+            run_data = {"run_id": run_id, "run_name": run.data.tags.get("mlflow.runName")}
+            for metric in metrics:
+                run_data[metric] = run.data.metrics.get(metric)
+            comparison.append(run_data)
+        
+        return pd.DataFrame(comparison)
+    
+    @staticmethod
+    def clone_run(run_id, new_params=None):
+        """Clone a run with optional parameter changes"""
+        client = MlflowClient()
+        source_run = client.get_run(run_id)
+        
+        with mlflow.start_run():
+            # Copy params
+            params = dict(source_run.data.params)
+            if new_params:
+                params.update(new_params)
+            mlflow.log_params(params)
+            
+            # Copy tags
+            for key, value in source_run.data.tags.items():
+                if not key.startswith("mlflow."):
+                    mlflow.set_tag(key, value)
+            mlflow.set_tag("cloned_from", run_id)
+```
+
+## Communication and Notifications
+
+### Integrate with Slack or Teams
+
+Notify team members of important events:
+
+```python
+import mlflow
+import requests
+
+def send_slack_notification(message, webhook_url):
+    """Send notification to Slack"""
+    payload = {"text": message}
+    requests.post(webhook_url, json=payload)
+
+with mlflow.start_run() as run:
+    # Your training code
+    accuracy = train_and_evaluate()
+    mlflow.log_metric("accuracy", accuracy)
+    
+    # Notify team if significant improvement
+    if accuracy > 0.95:
+        message = f"""
+        :rocket: New high-performing model!
+        Run: {run.info.run_name}
+        Accuracy: {accuracy:.3f}
+        URL: {mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}
+        """
+        send_slack_notification(message, SLACK_WEBHOOK_URL)
+```
+
+### Create Experiment Dashboards
+
+Share links to curated views:
+
+```python
+import mlflow
+
+def generate_experiment_url(experiment_name, filter_string=None):
+    """Generate shareable experiment URL with filters"""
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    base_url = mlflow.get_tracking_uri()
+    url = f"{base_url}/#/experiments/{experiment.experiment_id}"
+    
+    if filter_string:
+        # URL encode filter
+        import urllib.parse
+        encoded_filter = urllib.parse.quote(filter_string)
+        url += f"?searchFilter={encoded_filter}"
+    
+    return url
+
+# Share filtered views with team
+production_candidates_url = generate_experiment_url(
+    "image-classification",
+    filter_string="tags.production_candidate = 'true'"
+)
+
+print(f"Production candidates: {production_candidates_url}")
+```
+
+## Code Review and Reproducibility
+
+### Log Git Information
+
+Automatically track code versions:
+
+```python
+import mlflow
+import subprocess
+
+def get_git_info():
+    """Get current git information"""
+    try:
+        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('utf-8').strip()
+        branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).decode('utf-8').strip()
+        remote = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url']).decode('utf-8').strip()
+        
+        # Check for uncommitted changes
+        status = subprocess.check_output(['git', 'status', '--porcelain']).decode('utf-8')
+        is_dirty = len(status) > 0
+        
+        return {
+            "git_commit": commit,
+            "git_branch": branch,
+            "git_remote": remote,
+            "git_dirty": str(is_dirty)
+        }
+    except:
+        return {}
+
+with mlflow.start_run():
+    # Automatically log git info
+    git_info = get_git_info()
+    mlflow.set_tags(git_info)
+    
+    # Your training code
+    model = train_model()
+```
+
+### Share Reproducible Environments
+
+Log complete environment specifications:
+
+```python
+import mlflow
+import sys
+import pkg_resources
+
+with mlflow.start_run():
+    # Log Python version
+    mlflow.set_tag("python_version", sys.version)
+    
+    # Log all installed packages
+    installed_packages = {pkg.key: pkg.version for pkg in pkg_resources.working_set}
+    mlflow.log_dict(installed_packages, "requirements.json")
+    
+    # Log conda environment (if using conda)
+    import subprocess
+    try:
+        conda_env = subprocess.check_output(['conda', 'env', 'export']).decode('utf-8')
+        mlflow.log_text(conda_env, "conda_environment.yml")
+    except:
+        pass
+```
+
+## Access Control and Security
+
+### Document Access Policies
+
+Clearly communicate who can access what:
+
+```python
+import mlflow
+
+# Document workspace access policies
+mlflow.set_workspace("sensitive-models")
+mlflow.update_workspace(
+    name="sensitive-models",
+    description="""
+    RESTRICTED ACCESS - PII and Financial Models
+    
+    Access Level:
+    - Read: Data Science Team, ML Platform Team
+    - Write: Senior Data Scientists (approved list)
+    - Admin: ML Platform Lead
+    
+    Data Classification: Confidential
+    Compliance: SOC2, GDPR
+    
+    Contact: security@company.com
+    """
+)
+```
+
+### Tag Sensitive Experiments
+
+Mark experiments containing sensitive data:
+
+```python
+import mlflow
+
+mlflow.set_experiment("customer-pii-analysis")
+mlflow.set_experiment_tags({
+    "data_classification": "confidential",
+    "contains_pii": "true",
+    "compliance": "gdpr,ccpa",
+    "access_level": "restricted",
+    "data_retention": "90_days"
+})
+```
+
+## Summary
+
+Effective team collaboration in MLflow requires:
+- Well-organized workspaces and experiments
+- Clear naming conventions and tagging standards
+- Documented model promotion workflows
+- Shared templates and utilities
+- Team communication integration
+- Comprehensive git and environment tracking
+- Appropriate access controls and security
+
+By establishing these practices, teams can work together efficiently while maintaining reproducibility, quality, and compliance.

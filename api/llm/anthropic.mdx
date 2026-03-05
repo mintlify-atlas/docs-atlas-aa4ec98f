@@ -1,0 +1,245 @@
+---
+title: Anthropic
+description: MLflow integration for Anthropic Claude models
+---
+
+The `mlflow.anthropic` module provides autologging and tracing capabilities for Anthropic's Claude models. This integration automatically captures traces for Claude API calls.
+
+## Installation
+
+```bash
+pip install mlflow anthropic
+```
+
+## Autologging
+
+### mlflow.anthropic.autolog()
+
+Enables (or disables) and configures autologging from Anthropic to MLflow. Only synchronous calls and asynchronous APIs are supported. Streaming is not recorded.
+
+<Note>
+This also enables tracing for Claude Code SDK if available.
+</Note>
+
+<ParamField path="log_traces" type="bool" default="True">
+  If `True`, traces are logged for Anthropic models. If `False`, no traces are collected during inference.
+</ParamField>
+
+<ParamField path="disable" type="bool" default="False">
+  If `True`, disables the Anthropic autologging. If `False`, enables the Anthropic autologging.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If `True`, suppress all event logs and warnings from MLflow during Anthropic autologging. If `False`, show all events and warnings.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+from anthropic import Anthropic
+
+# Enable autologging
+mlflow.anthropic.autolog()
+
+client = Anthropic(api_key="your-api-key")
+
+# This call will be automatically traced
+message = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "Hello, Claude!"}
+    ]
+)
+
+print(message.content)
+```
+
+## Supported APIs
+
+The Anthropic integration automatically traces the following APIs:
+
+### Synchronous Messages API
+
+The `client.messages.create()` method is automatically traced:
+
+```python
+import mlflow
+from anthropic import Anthropic
+
+mlflow.anthropic.autolog()
+
+client = Anthropic(api_key="your-api-key")
+
+message = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "What is the capital of France?"}
+    ]
+)
+```
+
+### Asynchronous Messages API
+
+The async `client.messages.create()` method is also traced:
+
+```python
+import asyncio
+import mlflow
+from anthropic import AsyncAnthropic
+
+mlflow.anthropic.autolog()
+
+client = AsyncAnthropic(api_key="your-api-key")
+
+async def main():
+    message = await client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"}
+        ]
+    )
+    print(message.content)
+
+asyncio.run(main())
+```
+
+## Claude Code SDK Integration
+
+<Note>
+If the Claude Agent SDK is installed, MLflow will automatically patch and trace the Claude Code SDK client.
+</Note>
+
+When the `claude_agent_sdk` package is available, MLflow will automatically enable tracing for:
+
+- `ClaudeSDKClient.__init__()` - Client initialization
+- Agent interactions and tool usage
+
+```python
+import mlflow
+from claude_agent_sdk import ClaudeSDKClient
+
+mlflow.anthropic.autolog()
+
+client = ClaudeSDKClient()
+# Client interactions will be automatically traced
+```
+
+## Trace Information
+
+MLflow captures the following information in traces:
+
+### Inputs
+- Model name (e.g., `claude-3-5-sonnet-20241022`)
+- Messages with roles and content
+- System prompts (if provided)
+- Tools and tool choice (if provided)
+- Generation parameters (temperature, max_tokens, top_p, etc.)
+
+### Outputs
+- Generated message content
+- Stop reason
+- Tool calls (if applicable)
+
+### Metadata
+- Token usage (input tokens, output tokens)
+- Model version
+- Request timestamp
+- Response latency
+
+## Limitations
+
+<Warning>
+The following features are currently not supported:
+- Streaming responses (`stream=True`)
+</Warning>
+
+## Example: Multi-turn Conversation
+
+```python
+import mlflow
+from anthropic import Anthropic
+
+mlflow.anthropic.autolog()
+
+client = Anthropic(api_key="your-api-key")
+
+with mlflow.start_run():
+    # First turn
+    message1 = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"}
+        ]
+    )
+    
+    # Second turn (continuation)
+    message2 = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"},
+            {"role": "assistant", "content": message1.content[0].text},
+            {"role": "user", "content": "What is its population?"}
+        ]
+    )
+    
+    print(message2.content[0].text)
+```
+
+## Example: Using Tools
+
+```python
+import mlflow
+from anthropic import Anthropic
+
+mlflow.anthropic.autolog()
+
+client = Anthropic(api_key="your-api-key")
+
+tools = [
+    {
+        "name": "get_weather",
+        "description": "Get the current weather in a given location",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The city and state, e.g. San Francisco, CA"
+                }
+            },
+            "required": ["location"]
+        }
+    }
+]
+
+message = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    tools=tools,
+    messages=[
+        {"role": "user", "content": "What's the weather like in San Francisco?"}
+    ]
+)
+
+print(message.content)
+```
+
+## Disabling Autologging
+
+To temporarily disable autologging:
+
+```python
+import mlflow
+
+# Disable autologging
+mlflow.anthropic.autolog(disable=True)
+
+# Re-enable autologging
+mlflow.anthropic.autolog(disable=False)
+```

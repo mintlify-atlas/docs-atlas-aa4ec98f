@@ -1,0 +1,703 @@
+---
+title: TensorFlow Integration
+description: Track TensorFlow and Keras models with MLflow autologging
+---
+
+MLflow provides native integration with TensorFlow and Keras, enabling automatic logging of metrics, parameters, models, and artifacts during training.
+
+## Installation
+
+```bash
+pip install mlflow tensorflow
+```
+
+## Quick Start
+
+```python
+import tensorflow as tf
+import mlflow
+import mlflow.tensorflow
+
+# Enable autologging
+mlflow.tensorflow.autolog()
+
+# Build model
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(128, activation='relu', input_shape=(784,)),
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dense(10, activation='softmax')
+])
+
+model.compile(
+    optimizer='adam',
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# Train - MLflow automatically logs everything
+with mlflow.start_run():
+    model.fit(X_train, y_train, epochs=5, validation_data=(X_val, y_val))
+```
+
+## Autologging
+
+Enable autologging to capture training metrics automatically:
+
+```python
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog(
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    registered_model_name=None,
+    log_input_examples=False,
+    log_model_signatures=True,
+    saved_model_kwargs=None,
+    keras_model_kwargs=None,
+    extra_tags=None,
+    log_every_epoch=True,
+    log_every_n_steps=None,
+    checkpoint=True,
+    checkpoint_monitor="val_loss",
+    checkpoint_mode="min",
+    checkpoint_save_best_only=True,
+    checkpoint_save_weights_only=False,
+    checkpoint_save_freq="epoch"
+)
+```
+
+<ParamField path="log_models" type="bool" default="True">
+  If True, trained models are logged as MLflow model artifacts
+</ParamField>
+
+<ParamField path="log_datasets" type="bool" default="True">
+  If True, dataset information is logged to MLflow Tracking
+</ParamField>
+
+<ParamField path="log_every_epoch" type="bool" default="True">
+  If True, training metrics are logged at the end of each epoch
+</ParamField>
+
+<ParamField path="checkpoint" type="bool" default="True">
+  Enable automatic model checkpointing
+</ParamField>
+
+<ParamField path="checkpoint_monitor" type="str" default="val_loss">
+  Metric name to monitor for checkpointing
+</ParamField>
+
+### What Gets Logged
+
+When autologging is enabled, MLflow captures:
+
+- **Metrics**: Training and validation loss, accuracy, custom metrics
+- **Parameters**: Optimizer config (learning rate, momentum), training config (epochs, batch size)
+- **Artifacts**: Model summary, TensorBoard logs, saved model
+- **Models**: Trained model in MLflow format with Keras/SavedModel
+- **Checkpoints**: Model checkpoints at specified intervals
+
+## Logging Models
+
+### Save a Model
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+from mlflow.models import infer_signature
+
+# Build and train model
+model = tf.keras.Sequential([...])
+model.compile(optimizer='adam', loss='mse')
+model.fit(X_train, y_train, epochs=10)
+
+# Create signature
+predictions = model.predict(X_train[:5])
+signature = infer_signature(X_train[:5], predictions)
+
+# Save model
+mlflow.tensorflow.save_model(
+    model,
+    "tensorflow_model",
+    signature=signature
+)
+```
+
+### Log a Model
+
+```python
+import mlflow.tensorflow
+
+with mlflow.start_run():
+    # Train model
+    history = model.fit(X_train, y_train, epochs=10)
+    
+    # Log model
+    mlflow.tensorflow.log_model(
+        model=model,
+        name="model",
+        signature=signature,
+        input_example=X_train[:5],
+        registered_model_name="keras_model"
+    )
+```
+
+### Model Formats
+
+MLflow supports different Keras save formats:
+
+```python
+# SavedModel format (default, recommended)
+mlflow.tensorflow.log_model(
+    model,
+    "model",
+    keras_model_kwargs={"save_format": "tf"}
+)
+
+# HDF5 format
+mlflow.tensorflow.log_model(
+    model,
+    "model",
+    keras_model_kwargs={"save_format": "h5"}
+)
+
+# Keras v3 format (TensorFlow >= 2.16)
+mlflow.tensorflow.log_model(
+    model,
+    "model",
+    keras_model_kwargs={"save_format": "keras"}  # .keras extension
+)
+```
+
+### Load a Model
+
+```python
+import mlflow.tensorflow
+import numpy as np
+
+# Load native TensorFlow/Keras model
+model_uri = "runs:/abc123/model"
+model = mlflow.tensorflow.load_model(model_uri)
+
+# Make predictions
+predictions = model.predict(X_test)
+
+# Load as PyFunc
+import mlflow.pyfunc
+pyfunc_model = mlflow.pyfunc.load_model(model_uri)
+result = pyfunc_model.predict(X_test)
+```
+
+## Custom Objects
+
+Log models with custom layers or losses:
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+# Define custom layer
+class CustomLayer(tf.keras.layers.Layer):
+    def call(self, inputs):
+        return inputs * 2
+
+# Build model with custom layer
+model = tf.keras.Sequential([
+    CustomLayer(),
+    tf.keras.layers.Dense(10)
+])
+
+# Log with custom objects
+custom_objects = {"CustomLayer": CustomLayer}
+
+with mlflow.start_run():
+    mlflow.tensorflow.log_model(
+        model,
+        "model",
+        custom_objects=custom_objects
+    )
+
+# Load with custom objects
+model = mlflow.tensorflow.load_model(
+    "runs:/abc123/model",
+    keras_model_kwargs={"custom_objects": custom_objects}
+)
+```
+
+## MLflow Callbacks
+
+Use MLflow callbacks for fine-grained control:
+
+```python
+import mlflow.tensorflow
+from mlflow.tensorflow import MlflowCallback
+
+with mlflow.start_run():
+    # Use MLflow callback
+    mlflow_callback = MlflowCallback(
+        log_every_epoch=True,
+        log_every_n_steps=100
+    )
+    
+    model.fit(
+        X_train, y_train,
+        epochs=10,
+        callbacks=[mlflow_callback],
+        validation_data=(X_val, y_val)
+    )
+```
+
+<Warning>
+  Do not use `MlflowCallback` when autologging is enabled, as it will cause duplicate logging.
+</Warning>
+
+## Checkpointing
+
+### Automatic Checkpointing
+
+```python
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog(
+    checkpoint=True,
+    checkpoint_monitor="val_loss",
+    checkpoint_mode="min",
+    checkpoint_save_best_only=True,
+    checkpoint_save_weights_only=False,
+    checkpoint_save_freq="epoch"
+)
+
+with mlflow.start_run():
+    model.fit(X_train, y_train, epochs=50, validation_data=(X_val, y_val))
+    # Best checkpoint is automatically saved
+```
+
+### Manual Checkpoint Callback
+
+```python
+from mlflow.tensorflow import MlflowModelCheckpointCallback
+
+checkpoint_callback = MlflowModelCheckpointCallback(
+    monitor="val_accuracy",
+    mode="max",
+    save_best_only=True,
+    save_weights_only=False
+)
+
+with mlflow.start_run():
+    model.fit(
+        X_train, y_train,
+        epochs=20,
+        callbacks=[checkpoint_callback],
+        validation_data=(X_val, y_val)
+    )
+```
+
+### Load Checkpoint
+
+```python
+import mlflow.tensorflow
+
+# Load latest checkpoint
+checkpoint = mlflow.tensorflow.load_checkpoint(
+    model.__class__,
+    run_id="abc123"
+)
+
+# Load specific epoch checkpoint
+checkpoint = mlflow.tensorflow.load_checkpoint(
+    model.__class__,
+    run_id="abc123",
+    epoch=10
+)
+```
+
+## Advanced Features
+
+### Early Stopping
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog()
+
+early_stop = tf.keras.callbacks.EarlyStopping(
+    monitor='val_loss',
+    patience=3,
+    restore_best_weights=True
+)
+
+with mlflow.start_run():
+    model.fit(
+        X_train, y_train,
+        epochs=100,
+        callbacks=[early_stop],
+        validation_data=(X_val, y_val)
+    )
+    # Early stopping metrics are automatically logged
+```
+
+### Learning Rate Scheduling
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog()
+
+lr_schedule = tf.keras.callbacks.ReduceLROnPlateau(
+    monitor='val_loss',
+    factor=0.5,
+    patience=5
+)
+
+with mlflow.start_run():
+    model.fit(
+        X_train, y_train,
+        epochs=50,
+        callbacks=[lr_schedule],
+        validation_data=(X_val, y_val)
+    )
+    # Learning rate changes are logged
+```
+
+### TensorBoard Integration
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+import tempfile
+
+mlflow.tensorflow.autolog()
+
+# Create TensorBoard callback
+log_dir = tempfile.mkdtemp()
+tensorboard_callback = tf.keras.callbacks.TensorBoard(
+    log_dir=log_dir,
+    histogram_freq=1
+)
+
+with mlflow.start_run():
+    model.fit(
+        X_train, y_train,
+        epochs=10,
+        callbacks=[tensorboard_callback],
+        validation_data=(X_val, y_val)
+    )
+    # TensorBoard logs are automatically captured
+```
+
+### Custom Metrics
+
+```python
+import tensorflow as tf
+import mlflow
+
+class CustomMetricCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        # Log custom metrics
+        custom_metric = compute_custom_metric()
+        mlflow.log_metric("custom_metric", custom_metric, step=epoch)
+
+mlflow.tensorflow.autolog()
+
+with mlflow.start_run():
+    model.fit(
+        X_train, y_train,
+        epochs=10,
+        callbacks=[CustomMetricCallback()]
+    )
+```
+
+## Model Signatures
+
+Create signatures for proper inference:
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+from mlflow.models import infer_signature
+from mlflow.types.schema import Schema, TensorSpec
+import numpy as np
+
+# Option 1: Infer signature
+input_data = X_train[:5]
+output_data = model.predict(input_data)
+signature = infer_signature(input_data, output_data)
+
+# Option 2: Manual signature (for complex inputs)
+input_schema = Schema([
+    TensorSpec(np.dtype(np.float32), (-1, 28, 28), "image")
+])
+output_schema = Schema([
+    TensorSpec(np.dtype(np.float32), (-1, 10), "probabilities")
+])
+signature = ModelSignature(inputs=input_schema, outputs=output_schema)
+
+# Log with signature
+mlflow.tensorflow.log_model(model, "model", signature=signature)
+```
+
+<Note>
+  Logging without a signature may cause issues with `mlflow.pyfunc.spark_udf()`. Always include signatures for production models.
+</Note>
+
+## Multi-Input/Multi-Output Models
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+from mlflow.models import infer_signature
+
+# Multi-input model
+input1 = tf.keras.Input(shape=(10,), name="input1")
+input2 = tf.keras.Input(shape=(20,), name="input2")
+x = tf.keras.layers.concatenate([input1, input2])
+output = tf.keras.layers.Dense(1)(x)
+model = tf.keras.Model(inputs=[input1, input2], outputs=output)
+
+model.compile(optimizer='adam', loss='mse')
+
+# Create signature with dict inputs
+input_example = {
+    "input1": X1_train[:5],
+    "input2": X2_train[:5]
+}
+predictions = model.predict(input_example)
+signature = infer_signature(input_example, predictions)
+
+# Log model
+with mlflow.start_run():
+    mlflow.tensorflow.log_model(
+        model,
+        "model",
+        signature=signature,
+        input_example=input_example
+    )
+```
+
+## Distributed Training
+
+### MirroredStrategy
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog()
+
+# Create distribution strategy
+strategy = tf.distribute.MirroredStrategy()
+
+with strategy.scope():
+    model = tf.keras.Sequential([...])
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+
+with mlflow.start_run():
+    mlflow.log_param("strategy", "MirroredStrategy")
+    mlflow.log_param("num_devices", strategy.num_replicas_in_sync)
+    
+    model.fit(X_train, y_train, epochs=10)
+```
+
+### MultiWorkerMirroredStrategy
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+import json
+import os
+
+# Configure cluster
+tf_config = {
+    'cluster': {
+        'worker': ['localhost:12345', 'localhost:23456']
+    },
+    'task': {'type': 'worker', 'index': 0}
+}
+os.environ['TF_CONFIG'] = json.dumps(tf_config)
+
+strategy = tf.distribute.MultiWorkerMirroredStrategy()
+
+mlflow.tensorflow.autolog()
+
+with strategy.scope():
+    model = build_model()
+    model.compile(...)
+
+with mlflow.start_run():
+    model.fit(train_dataset, epochs=10)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Use Signatures">
+    Include signatures for production models:
+    
+    ```python
+    signature = infer_signature(X_train[:5], model.predict(X_train[:5]))
+    mlflow.tensorflow.log_model(model, "model", signature=signature)
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Checkpointing">
+    Save checkpoints to prevent training loss:
+    
+    ```python
+    mlflow.tensorflow.autolog(
+        checkpoint=True,
+        checkpoint_save_best_only=True
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Log Input Examples">
+    Provide input examples for better inference:
+    
+    ```python
+    mlflow.tensorflow.log_model(
+        model,
+        "model",
+        input_example=X_train[:5]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Don't Mix Autolog and MlflowCallback">
+    Use either autologging or manual callbacks, not both:
+    
+    ```python
+    # Option 1: Autologging (recommended)
+    mlflow.tensorflow.autolog()
+    model.fit(...)
+    
+    # Option 2: Manual callback
+    # mlflow.tensorflow.autolog(disable=True)
+    # model.fit(..., callbacks=[MlflowCallback()])
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Transfer Learning
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+mlflow.tensorflow.autolog()
+
+# Load pre-trained model
+base_model = tf.keras.applications.MobileNetV2(
+    input_shape=(224, 224, 3),
+    include_top=False,
+    weights='imagenet'
+)
+base_model.trainable = False
+
+# Add custom layers
+model = tf.keras.Sequential([
+    base_model,
+    tf.keras.layers.GlobalAveragePooling2D(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(10, activation='softmax')
+])
+
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+
+with mlflow.start_run():
+    mlflow.log_param("base_model", "MobileNetV2")
+    mlflow.log_param("base_trainable", False)
+    model.fit(X_train, y_train, epochs=10)
+```
+
+### Mixed Precision Training
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+# Enable mixed precision
+tf.keras.mixed_precision.set_global_policy('mixed_float16')
+
+mlflow.tensorflow.autolog()
+
+model = build_model()
+model.compile(
+    optimizer='adam',
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+with mlflow.start_run():
+    mlflow.log_param("precision", "mixed_float16")
+    model.fit(X_train, y_train, epochs=10)
+```
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m runs:/<run_id>/model -p 5000
+```
+
+Test:
+
+```python
+import requests
+import numpy as np
+
+data = np.random.rand(1, 28, 28).tolist()
+response = requests.post(
+    "http://127.0.0.1:5000/invocations",
+    json={"dataframe_split": {"data": data}}
+)
+print(response.json())
+```
+
+### Batch Inference
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+import numpy as np
+
+model = mlflow.pyfunc.load_model("runs:/<run_id>/model")
+
+# Batch predictions
+X_batch = np.random.rand(100, 28, 28)
+predictions = model.predict(X_batch)
+```
+
+## Version Compatibility
+
+- TensorFlow >= 2.3 is required for autologging
+- TensorFlow >= 2.16 uses `.keras` extension by default
+- SavedModel format is recommended for production
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PyTorch Integration" icon="fire" href="/integrations/pytorch">
+    Track PyTorch and Lightning models
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and deploy TensorFlow models
+  </Card>
+  
+  <Card title="Hyperparameter Tuning" icon="sliders" href="/tracking/hyperparameters">
+    Optimize model hyperparameters
+  </Card>
+  
+  <Card title="Deployment Guide" icon="rocket" href="/deployment">
+    Deploy models to production
+  </Card>
+</CardGroup>

@@ -1,0 +1,656 @@
+---
+title: Docker Deployment
+description: Package and deploy MLflow models using Docker containers
+---
+
+Docker containers provide a portable, consistent way to deploy MLflow models across different environments. MLflow provides official Docker images and tools to build custom images for your models.
+
+## MLflow Official Docker Images
+
+MLflow provides pre-built Docker images for quick deployment:
+
+<CardGroup cols={2}>
+  <Card title="mlflow:VERSION" icon="box">
+    Lightweight base image with core MLflow only
+  </Card>
+  <Card title="mlflow:VERSION-full" icon="boxes-stacked">
+    Complete image with all integrations and dependencies
+  </Card>
+</CardGroup>
+
+### Image Variants
+
+<Tabs>
+  <Tab title="Default (mlflow:VERSION)">
+    Contains only the core MLflow package without extra dependencies.
+
+    **Use when:**
+    - You need minimal image size
+    - You want full control over dependencies
+    - You only need basic MLflow functionality
+
+    **Note:** Most integrations (databases, cloud storage, etc.) require additional packages.
+
+    ```bash
+    docker pull ghcr.io/mlflow/mlflow:3.9.0
+    ```
+  </Tab>
+
+  <Tab title="Full (mlflow:VERSION-full)">
+    Contains MLflow with all extra dependencies including:
+    - Database drivers (MySQL, PostgreSQL, SQL Server)
+    - Cloud storage integrations (AWS S3, Azure Blob, GCS)
+    - AI Gateway and GenAI capabilities
+
+    **Available from:** MLflow v3.9.0+
+
+    ```bash
+    docker pull ghcr.io/mlflow/mlflow:3.9.0-full
+    ```
+  </Tab>
+</Tabs>
+
+## Quick Start
+
+### Run MLflow Server
+
+<CodeGroup>
+```bash Basic Server
+docker run -p 5000:5000 \
+  ghcr.io/mlflow/mlflow:latest-full \
+  mlflow server --host 0.0.0.0
+```
+
+```bash With PostgreSQL Backend
+docker run -p 5000:5000 \
+  -e MLFLOW_BACKEND_STORE_URI=postgresql://user:password@postgres-host:5432/mlflow \
+  ghcr.io/mlflow/mlflow:latest-full \
+  mlflow server \
+    --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}" \
+    --host 0.0.0.0
+```
+
+```bash With S3 Artifacts
+docker run -p 5000:5000 \
+  -e AWS_ACCESS_KEY_ID=your-access-key \
+  -e AWS_SECRET_ACCESS_KEY=your-secret-key \
+  ghcr.io/mlflow/mlflow:latest-full \
+  mlflow server \
+    --artifacts-destination s3://your-bucket/mlflow \
+    --host 0.0.0.0
+```
+
+```bash With Azure Blob Storage
+docker run -p 5000:5000 \
+  -e AZURE_STORAGE_CONNECTION_STRING="your-connection-string" \
+  ghcr.io/mlflow/mlflow:latest-full \
+  mlflow server \
+    --artifacts-destination wasbs://container@account.blob.core.windows.net/mlflow \
+    --host 0.0.0.0
+```
+</CodeGroup>
+
+## Docker Compose Setup
+
+Use Docker Compose for a complete MLflow deployment with database and storage:
+
+### PostgreSQL + S3 Storage
+
+```yaml docker-compose.yml
+version: "3.8"
+
+volumes:
+  pgdata:
+  storage-data:
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: mlflow-postgres
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  storage:
+    image: rustfs/rustfs:1.0.0-alpha.83
+    container_name: storage
+    environment:
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_SERVER_DOMAINS: storage:9000
+      RUSTFS_REGION: us-east-1
+      RUSTFS_ACCESS_KEY: s3admin
+      RUSTFS_SECRET_KEY: s3admin
+      RUSTFS_CONSOLE_ENABLE: true
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'curl -s http://127.0.0.1:9000/health | grep -q '"status":"ok"'']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  create-bucket:
+    image: amazon/aws-cli:2.33.25
+    container_name: mlflow-create-bucket
+    depends_on:
+      storage:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        aws --endpoint-url=http://storage:9000 s3api create-bucket \
+          --bucket mlflow --region us-east-1 || true
+      "
+    environment:
+      AWS_ACCESS_KEY_ID: s3admin
+      AWS_SECRET_ACCESS_KEY: s3admin
+      AWS_DEFAULT_REGION: us-east-1
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest-full
+    container_name: mlflow-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      create-bucket:
+        condition: service_completed_successfully
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:mlflow@postgres:5432/mlflow
+      MLFLOW_S3_ENDPOINT_URL: http://storage:9000
+      MLFLOW_ARTIFACTS_DESTINATION: s3://mlflow
+      AWS_ACCESS_KEY_ID: s3admin
+      AWS_SECRET_ACCESS_KEY: s3admin
+      AWS_DEFAULT_REGION: us-east-1
+      MLFLOW_S3_IGNORE_TLS: "true"
+    command:
+      - /bin/bash
+      - -c
+      - |
+        pip install --no-cache-dir psycopg2-binary boto3
+        mlflow server \
+          --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}" \
+          --artifacts-destination "${MLFLOW_ARTIFACTS_DESTINATION}" \
+          --serve-artifacts \
+          --host 0.0.0.0 \
+          --port 5000
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+networks:
+  default:
+    name: mlflow-network
+```
+
+**Start the stack:**
+
+```bash
+docker-compose up -d
+```
+
+**Access MLflow UI:**
+
+Open `http://localhost:5000` in your browser.
+
+### MySQL Backend Setup
+
+```yaml docker-compose-mysql.yml
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: mlflow-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mlflow
+      MYSQL_USER: mlflow
+      MYSQL_PASSWORD: mlflow
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest-full
+    container_name: mlflow-server
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: mysql+pymysql://mlflow:mlflow@mysql:3306/mlflow
+    command: mlflow server --backend-store-uri $MLFLOW_BACKEND_STORE_URI --host 0.0.0.0
+
+volumes:
+  mysql-data:
+```
+
+## Building Custom Docker Images
+
+MLflow provides tools to build custom Docker images for your models.
+
+### Using mlflow models build-docker
+
+```bash
+mlflow models build-docker \
+  -m models:/my-model/production \
+  -n my-model-image:latest \
+  --enable-mlserver
+```
+
+### Generated Dockerfile Structure
+
+MLflow generates a Dockerfile with the following structure:
+
+```dockerfile
+# Build an image that can serve mlflow models.
+FROM python:3.10-slim-bullseye
+
+# Setup nginx for serving
+RUN apt-get -y update && apt-get install -y --no-install-recommends nginx
+
+WORKDIR /opt/mlflow
+
+# Install MLflow
+RUN pip install mlflow==3.9.0
+
+# Copy model and install dependencies
+COPY model /opt/mlflow/model
+RUN pip install -r /opt/mlflow/model/requirements.txt
+
+ENV MLFLOW_DISABLE_ENV_CREATION=true
+ENV ENABLE_MLSERVER=false
+
+# Set permissions for SageMaker Serverless
+RUN chmod o+rwX /opt/mlflow/
+
+# Clean up
+RUN rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["python", "-c", "import mlflow; mlflow.models.serve('model')"]
+```
+
+### Custom Dockerfile from Scratch
+
+Create a custom Dockerfile for your model:
+
+```dockerfile
+FROM python:3.10-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    nginx \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install MLflow and dependencies
+RUN pip install --no-cache-dir \
+    mlflow==3.9.0 \
+    scikit-learn==1.3.0 \
+    pandas==2.0.3
+
+# Copy model artifacts
+WORKDIR /opt/mlflow
+COPY model /opt/mlflow/model
+
+# Install model-specific dependencies
+RUN if [ -f /opt/mlflow/model/requirements.txt ]; then \
+    pip install --no-cache-dir -r /opt/mlflow/model/requirements.txt; \
+    fi
+
+# Expose serving port
+EXPOSE 8080
+
+# Set environment variables
+ENV MLFLOW_DISABLE_ENV_CREATION=true
+ENV MLFLOW_TRACKING_URI=""
+
+# Start model server
+CMD ["mlflow", "models", "serve", "-m", "/opt/mlflow/model", "-h", "0.0.0.0", "-p", "8080", "--no-conda"]
+```
+
+**Build and run:**
+
+```bash
+# Build image
+docker build -t my-model:latest .
+
+# Run container
+docker run -p 8080:8080 my-model:latest
+```
+
+## Advanced Dockerfile Templates
+
+### Ubuntu Base with Conda
+
+```dockerfile
+FROM ubuntu:22.04
+
+# Install system dependencies
+RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y \
+    --no-install-recommends \
+    wget curl nginx ca-certificates bzip2 build-essential cmake git-core
+
+# Setup Miniconda
+RUN curl --fail -L https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh > miniconda.sh
+RUN bash ./miniconda.sh -b -p /miniconda && rm ./miniconda.sh
+ENV PATH="/miniconda/bin:$PATH"
+RUN conda config --system --remove channels defaults && conda config --system --add channels conda-forge
+
+WORKDIR /opt/mlflow
+
+# Install MLflow
+RUN pip install mlflow==3.9.0
+
+# Copy and setup model
+COPY model /opt/mlflow/model
+RUN if [ -f /opt/mlflow/model/conda.yaml ]; then \
+    conda env create -f /opt/mlflow/model/conda.yaml -n model-env; \
+    fi
+
+RUN chmod o+rwX /opt/mlflow/
+RUN rm -rf /var/lib/apt/lists/*
+
+CMD ["mlflow", "models", "serve", "-m", "/opt/mlflow/model", "-h", "0.0.0.0", "-p", "8080"]
+```
+
+### With Java Support
+
+```dockerfile
+FROM ubuntu:22.04
+
+# Install system dependencies including Java
+RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y \
+    --no-install-recommends \
+    wget curl nginx ca-certificates \
+    openjdk-17-jdk maven \
+    python3.10 python3-pip
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+WORKDIR /opt/mlflow
+
+# Install MLflow with Java support
+RUN pip install mlflow[java]==3.9.0
+
+COPY model /opt/mlflow/model
+
+CMD ["mlflow", "models", "serve", "-m", "/opt/mlflow/model", "-h", "0.0.0.0", "-p", "8080"]
+```
+
+## Environment Variables
+
+<ParamField path="MLFLOW_BACKEND_STORE_URI" type="string">
+  Database connection string for tracking server
+  ```bash
+  postgresql://user:password@host:5432/mlflow
+  mysql+pymysql://user:password@host:3306/mlflow
+  ```
+</ParamField>
+
+<ParamField path="MLFLOW_ARTIFACTS_DESTINATION" type="string">
+  Default artifact storage location
+  ```bash
+  s3://bucket/path
+  wasbs://container@account.blob.core.windows.net/path
+  gs://bucket/path
+  ```
+</ParamField>
+
+<ParamField path="AWS_ACCESS_KEY_ID" type="string">
+  AWS access key for S3 storage
+</ParamField>
+
+<ParamField path="AWS_SECRET_ACCESS_KEY" type="string">
+  AWS secret key for S3 storage
+</ParamField>
+
+<ParamField path="AZURE_STORAGE_CONNECTION_STRING" type="string">
+  Azure storage connection string
+</ParamField>
+
+<ParamField path="GOOGLE_APPLICATION_CREDENTIALS" type="string">
+  Path to GCP service account key file
+</ParamField>
+
+<ParamField path="MLFLOW_S3_ENDPOINT_URL" type="string">
+  Custom S3-compatible endpoint URL
+</ParamField>
+
+<ParamField path="MLFLOW_DISABLE_ENV_CREATION" type="boolean">
+  Disable runtime environment creation (set to `true` in containers)
+</ParamField>
+
+<ParamField path="ENABLE_MLSERVER" type="boolean">
+  Enable MLServer for serving
+</ParamField>
+
+## Development Docker Image
+
+Build a development image with MLflow installed in editable mode:
+
+```dockerfile Dockerfile.dev
+FROM python:3.10-slim
+
+# Install git and build tools
+RUN apt-get update && apt-get install -y git build-essential
+
+# Clone and install MLflow
+WORKDIR /opt
+RUN git clone https://github.com/mlflow/mlflow.git
+WORKDIR /opt/mlflow
+
+# Install in editable mode with all extras
+RUN pip install -e ".[extras,db,databricks,gateway,genai,sqlserver]"
+
+EXPOSE 5000
+
+CMD ["mlflow", "server", "--host", "0.0.0.0"]
+```
+
+**Build and run:**
+
+```bash
+docker build -f Dockerfile.dev -t mlflow-dev .
+docker run -p 5000:5000 mlflow-dev
+```
+
+## Multi-stage Build for Smaller Images
+
+```dockerfile
+# Stage 1: Build dependencies
+FROM python:3.10 as builder
+
+WORKDIR /build
+COPY requirements.txt .
+
+RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir mlflow==3.9.0
+
+# Stage 2: Runtime image
+FROM python:3.10-slim
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /root/.local
+
+# Update PATH
+ENV PATH=/root/.local/bin:$PATH
+
+WORKDIR /opt/mlflow
+COPY model /opt/mlflow/model
+
+EXPOSE 8080
+CMD ["mlflow", "models", "serve", "-m", "/opt/mlflow/model", "-h", "0.0.0.0", "-p", "8080", "--no-conda"]
+```
+
+## Serving Multiple Models
+
+Serve multiple models in a single container:
+
+```dockerfile
+FROM python:3.10-slim
+
+RUN pip install mlflow==3.9.0 nginx
+
+WORKDIR /opt/mlflow
+
+# Copy multiple models
+COPY model-a /opt/mlflow/model-a
+COPY model-b /opt/mlflow/model-b
+
+# Install dependencies for all models
+RUN pip install -r /opt/mlflow/model-a/requirements.txt
+RUN pip install -r /opt/mlflow/model-b/requirements.txt
+
+# Use supervisor or custom script to run multiple servers
+COPY start-servers.sh /opt/mlflow/
+RUN chmod +x /opt/mlflow/start-servers.sh
+
+EXPOSE 8080 8081
+
+CMD ["/opt/mlflow/start-servers.sh"]
+```
+
+```bash start-servers.sh
+#!/bin/bash
+
+# Start model-a on port 8080
+mlflow models serve -m /opt/mlflow/model-a -h 0.0.0.0 -p 8080 --no-conda &
+
+# Start model-b on port 8081
+mlflow models serve -m /opt/mlflow/model-b -h 0.0.0.0 -p 8081 --no-conda &
+
+# Wait for all background processes
+wait
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Specific Versions" icon="tag">
+    Always pin MLflow and dependency versions
+    ```dockerfile
+    RUN pip install mlflow==3.9.0
+    ```
+  </Card>
+
+  <Card title="Minimize Layers" icon="layer-group">
+    Combine RUN commands to reduce image size
+    ```dockerfile
+    RUN apt-get update && apt-get install -y \
+        package1 package2 \
+        && rm -rf /var/lib/apt/lists/*
+    ```
+  </Card>
+
+  <Card title="Use .dockerignore" icon="file-slash">
+    Exclude unnecessary files
+    ```text
+    .git
+    __pycache__
+    *.pyc
+    .env
+    ```
+  </Card>
+
+  <Card title="Non-root User" icon="user">
+    Run containers as non-root for security
+    ```dockerfile
+    RUN useradd -m mlflow
+    USER mlflow
+    ```
+  </Card>
+
+  <Card title="Health Checks" icon="heart-pulse">
+    Add Docker health checks
+    ```dockerfile
+    HEALTHCHECK --interval=30s --timeout=3s \
+      CMD curl -f http://localhost:8080/ping || exit 1
+    ```
+  </Card>
+
+  <Card title="Multi-stage Builds" icon="layer-group">
+    Use multi-stage builds for smaller images
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Container exits immediately">
+    **Check logs:**
+    ```bash
+    docker logs <container-id>
+    ```
+
+    **Run interactively:**
+    ```bash
+    docker run -it --entrypoint /bin/bash my-model:latest
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied errors">
+    **Fix file permissions:**
+    ```dockerfile
+    RUN chmod -R 755 /opt/mlflow
+    RUN chown -R mlflow:mlflow /opt/mlflow
+    ```
+  </Accordion>
+
+  <Accordion title="Out of memory">
+    **Increase Docker memory:**
+    ```bash
+    docker run -m 4g my-model:latest
+    ```
+  </Accordion>
+
+  <Accordion title="Dependencies not found">
+    **Verify requirements installation:**
+    ```dockerfile
+    RUN pip list
+    RUN pip show mlflow
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Kubernetes Deployment" icon="dharmachakra" href="/deployment/kubernetes">
+    Deploy Docker containers to Kubernetes
+  </Card>
+  <Card title="Cloud Providers" icon="cloud" href="/deployment/cloud-providers">
+    Deploy to AWS, Azure, or GCP
+  </Card>
+  <Card title="Model Registry" icon="database" href="/model-registry/overview">
+    Version and manage models
+  </Card>
+  <Card title="Production Monitoring" icon="chart-line" href="/monitoring/overview">
+    Monitor deployed models
+  </Card>
+</CardGroup>

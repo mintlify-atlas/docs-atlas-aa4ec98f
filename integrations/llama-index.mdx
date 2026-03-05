@@ -1,0 +1,406 @@
+---
+title: LlamaIndex Integration
+description: Track LlamaIndex queries and RAG workflows with MLflow
+---
+
+MLflow provides integration with LlamaIndex for tracking retrieval-augmented generation (RAG) applications, indexing workflows, and query engines.
+
+## Installation
+
+```bash
+pip install mlflow llama-index
+```
+
+## Quick Start
+
+```python
+import mlflow
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+
+# Load documents
+documents = SimpleDirectoryReader('data').load_data()
+index = VectorStoreIndex.from_documents(documents)
+
+# Create query engine
+query_engine = index.as_query_engine()
+
+# Track queries with MLflow
+with mlflow.start_run():
+    mlflow.log_param("index_type", "VectorStoreIndex")
+    
+    # Query the index
+    response = query_engine.query("What is MLflow?")
+    
+    # Log response metadata
+    mlflow.log_text(str(response), "query_response.txt")
+    mlflow.log_metric("response_length", len(str(response)))
+```
+
+## Tracking RAG Workflows
+
+### Document Indexing
+
+```python
+import mlflow
+from llama_index.core import (
+    VectorStoreIndex,
+    SimpleDirectoryReader,
+    StorageContext,
+    load_index_from_storage
+)
+from llama_index.core.node_parser import SimpleNodeParser
+
+with mlflow.start_run(run_name="document_indexing"):
+    # Load and parse documents
+    documents = SimpleDirectoryReader('docs').load_data()
+    mlflow.log_param("num_documents", len(documents))
+    
+    # Parse into nodes
+    parser = SimpleNodeParser.from_defaults(chunk_size=512)
+    nodes = parser.get_nodes_from_documents(documents)
+    mlflow.log_param("num_nodes", len(nodes))
+    mlflow.log_param("chunk_size", 512)
+    
+    # Create index
+    index = VectorStoreIndex(nodes)
+    
+    # Persist index
+    index.storage_context.persist("./storage")
+    mlflow.log_artifacts("./storage", "index_storage")
+```
+
+### Query Tracking
+
+```python
+import mlflow
+from llama_index.core import load_index_from_storage, StorageContext
+
+# Load index
+storage_context = StorageContext.from_defaults(persist_dir="./storage")
+index = load_index_from_storage(storage_context)
+query_engine = index.as_query_engine(similarity_top_k=3)
+
+with mlflow.start_run(run_name="query_execution"):
+    query = "How does MLflow track experiments?"
+    mlflow.log_param("query", query)
+    mlflow.log_param("top_k", 3)
+    
+    # Execute query
+    response = query_engine.query(query)
+    
+    # Log results
+    mlflow.log_text(str(response), "response.txt")
+    mlflow.log_metric("num_source_nodes", len(response.source_nodes))
+    
+    # Log source documents
+    for i, node in enumerate(response.source_nodes):
+        mlflow.log_dict(
+            {
+                "text": node.text,
+                "score": float(node.score),
+                "metadata": node.metadata
+            },
+            f"source_node_{i}.json"
+        )
+```
+
+## Advanced RAG Patterns
+
+### Custom Retrieval
+
+```python
+import mlflow
+from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import VectorIndexRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.postprocessor import SimilarityPostprocessor
+
+with mlflow.start_run():
+    # Configure retriever
+    retriever = VectorIndexRetriever(
+        index=index,
+        similarity_top_k=5,
+    )
+    mlflow.log_param("similarity_top_k", 5)
+    
+    # Configure response synthesizer
+    response_synthesizer = get_response_synthesizer(response_mode="compact")
+    mlflow.log_param("response_mode", "compact")
+    
+    # Assemble query engine
+    query_engine = RetrieverQueryEngine(
+        retriever=retriever,
+        response_synthesizer=response_synthesizer,
+        node_postprocessors=[
+            SimilarityPostprocessor(similarity_cutoff=0.7)
+        ]
+    )
+    mlflow.log_param("similarity_cutoff", 0.7)
+    
+    # Execute queries
+    queries = [
+        "What is MLflow?",
+        "How to track experiments?",
+        "What is the Model Registry?"
+    ]
+    
+    for i, q in enumerate(queries):
+        response = query_engine.query(q)
+        mlflow.log_text(str(response), f"response_{i}.txt")
+```
+
+### Multi-Modal RAG
+
+```python
+import mlflow
+from llama_index.core import SimpleDirectoryReader
+from llama_index.core.indices.multi_modal import MultiModalVectorStoreIndex
+from llama_index.multi_modal_llms.openai import OpenAIMultiModal
+
+with mlflow.start_run():
+    # Load documents with images
+    documents = SimpleDirectoryReader(
+        "./data_with_images",
+        required_exts=[".jpg", ".png", ".txt"]
+    ).load_data()
+    
+    mlflow.log_param("num_documents", len(documents))
+    mlflow.log_param("index_type", "MultiModalVectorStoreIndex")
+    
+    # Create multi-modal index
+    index = MultiModalVectorStoreIndex.from_documents(documents)
+    
+    # Query with multi-modal input
+    query_engine = index.as_query_engine(
+        multi_modal_llm=OpenAIMultiModal(model="gpt-4-vision-preview")
+    )
+    
+    response = query_engine.query("Describe the charts in the documents")
+    mlflow.log_text(str(response), "multimodal_response.txt")
+```
+
+## Evaluation
+
+### RAG Evaluation
+
+```python
+import mlflow
+from llama_index.core.evaluation import (
+    FaithfulnessEvaluator,
+    RelevancyEvaluator,
+    CorrectnessEvaluator
+)
+
+with mlflow.start_run():
+    # Create evaluators
+    faithfulness_evaluator = FaithfulnessEvaluator()
+    relevancy_evaluator = RelevancyEvaluator()
+    
+    # Test queries
+    test_queries = [
+        "What is MLflow?",
+        "How to log models?"
+    ]
+    
+    faithfulness_scores = []
+    relevancy_scores = []
+    
+    for query in test_queries:
+        response = query_engine.query(query)
+        
+        # Evaluate faithfulness
+        faith_result = faithfulness_evaluator.evaluate_response(
+            query=query,
+            response=response
+        )
+        faithfulness_scores.append(faith_result.score)
+        
+        # Evaluate relevancy
+        rel_result = relevancy_evaluator.evaluate_response(
+            query=query,
+            response=response
+        )
+        relevancy_scores.append(rel_result.score)
+    
+    # Log average scores
+    mlflow.log_metric("avg_faithfulness", sum(faithfulness_scores) / len(faithfulness_scores))
+    mlflow.log_metric("avg_relevancy", sum(relevancy_scores) / len(relevancy_scores))
+```
+
+## Integration with MLflow Tracing
+
+### Custom Tracing
+
+```python
+import mlflow
+from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
+
+# Create debug handler
+llama_debug = LlamaDebugHandler(print_trace_on_end=True)
+callback_manager = CallbackManager([llama_debug])
+
+with mlflow.start_run():
+    # Create index with callback manager
+    index = VectorStoreIndex.from_documents(
+        documents,
+        callback_manager=callback_manager
+    )
+    
+    query_engine = index.as_query_engine()
+    response = query_engine.query("What is MLflow?")
+    
+    # Log event traces
+    event_pairs = llama_debug.get_event_pairs()
+    mlflow.log_dict(
+        {"events": [str(e) for e in event_pairs]},
+        "trace_events.json"
+    )
+```
+
+## Agent Workflows
+
+### ReAct Agent
+
+```python
+import mlflow
+from llama_index.core.agent import ReActAgent
+from llama_index.core.tools import QueryEngineTool, ToolMetadata
+
+with mlflow.start_run():
+    # Create tools from query engines
+    tool1 = QueryEngineTool(
+        query_engine=query_engine,
+        metadata=ToolMetadata(
+            name="docs_search",
+            description="Search MLflow documentation"
+        )
+    )
+    
+    # Create agent
+    agent = ReActAgent.from_tools(
+        [tool1],
+        verbose=True
+    )
+    
+    mlflow.log_param("agent_type", "ReActAgent")
+    mlflow.log_param("num_tools", 1)
+    
+    # Use agent
+    response = agent.chat("How do I log models in MLflow?")
+    mlflow.log_text(str(response), "agent_response.txt")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Log Index Configuration">
+    Always log index parameters for reproducibility:
+    
+    ```python
+    mlflow.log_params({
+        "chunk_size": 512,
+        "chunk_overlap": 50,
+        "similarity_top_k": 3,
+        "embedding_model": "text-embedding-ada-002"
+    })
+    ```
+  </Accordion>
+  
+  <Accordion title="Track Source Documents">
+    Log source nodes to verify retrieval quality:
+    
+    ```python
+    for i, node in enumerate(response.source_nodes):
+        mlflow.log_dict(
+            {"text": node.text, "score": node.score},
+            f"source_{i}.json"
+        )
+    ```
+  </Accordion>
+  
+  <Accordion title="Evaluate Regularly">
+    Use LlamaIndex evaluators to track quality:
+    
+    ```python
+    evaluator = FaithfulnessEvaluator()
+    result = evaluator.evaluate_response(query, response)
+    mlflow.log_metric("faithfulness", result.score)
+    ```
+  </Accordion>
+  
+  <Accordion title="Version Your Indices">
+    Save and version index storage:
+    
+    ```python
+    index.storage_context.persist("./storage")
+    mlflow.log_artifacts("./storage", "index")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Hybrid Search
+
+```python
+import mlflow
+from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import VectorIndexRetriever, KeywordTableRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+
+with mlflow.start_run():
+    # Vector retriever
+    vector_retriever = VectorIndexRetriever(index=vector_index, similarity_top_k=5)
+    
+    # Combine retrievers
+    from llama_index.core.retrievers import QueryFusionRetriever
+    
+    hybrid_retriever = QueryFusionRetriever(
+        [vector_retriever],
+        similarity_top_k=3,
+        num_queries=1,
+    )
+    
+    query_engine = RetrieverQueryEngine.from_args(hybrid_retriever)
+    
+    mlflow.log_param("retrieval_strategy", "hybrid")
+    response = query_engine.query("MLflow model registry")
+```
+
+### Streaming Responses
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    query_engine = index.as_query_engine(streaming=True)
+    
+    response = query_engine.query("Explain MLflow tracking")
+    
+    full_response = ""
+    for text in response.response_gen:
+        full_response += text
+    
+    mlflow.log_text(full_response, "streamed_response.txt")
+    mlflow.log_metric("response_length", len(full_response))
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LangChain Integration" icon="link" href="/integrations/langchain">
+    Track LangChain applications
+  </Card>
+  
+  <Card title="OpenAI Integration" icon="brain" href="/integrations/openai">
+    Log OpenAI API calls
+  </Card>
+  
+  <Card title="Model Tracing" icon="route" href="/tracking/tracing">
+    Learn about MLflow tracing
+  </Card>
+  
+  <Card title="Experiments" icon="flask" href="/tracking/experiments">
+    Organize your RAG experiments
+  </Card>
+</CardGroup>

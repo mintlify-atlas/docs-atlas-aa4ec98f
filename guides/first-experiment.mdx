@@ -1,0 +1,214 @@
+---
+title: "Your First MLflow Experiment"
+description: "Learn how to track your first machine learning experiment with MLflow"
+---
+
+This tutorial will guide you through creating your first MLflow experiment, from tracking parameters and metrics to logging your trained model.
+
+## What You'll Learn
+
+- How to start an MLflow run
+- Logging parameters, metrics, and artifacts
+- Training and logging a scikit-learn model
+- Viewing results in the MLflow UI
+
+## Prerequisites
+
+Install MLflow and scikit-learn:
+
+```bash
+pip install mlflow scikit-learn pandas
+```
+
+## Step 1: Simple Tracking Example
+
+Let's start with a basic example that demonstrates MLflow's core tracking capabilities:
+
+```python
+import mlflow
+from random import randint, random
+import os
+
+# Log parameters
+mlflow.log_param("param1", randint(0, 100))
+
+# Log metrics (can log the same metric multiple times)
+mlflow.log_metric("foo", random())
+mlflow.log_metric("foo", random() + 1)
+mlflow.log_metric("foo", random() + 2)
+
+# Create and log artifacts
+if not os.path.exists("outputs"):
+    os.makedirs("outputs")
+with open("outputs/test.txt", "w") as f:
+    f.write("hello world!")
+
+mlflow.log_artifacts("outputs")
+```
+
+This example shows three core MLflow concepts:
+- **Parameters**: Configuration values (e.g., learning rate, batch size)
+- **Metrics**: Numerical measurements that can be tracked over time
+- **Artifacts**: Output files like models, plots, or data files
+
+## Step 2: Training Your First Model
+
+Now let's build a complete example using a real dataset. We'll train a logistic regression model:
+
+<Steps>
+
+<Step title="Import dependencies">
+
+```python
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+import mlflow
+import mlflow.sklearn
+from mlflow.models import infer_signature
+```
+
+</Step>
+
+<Step title="Prepare your data">
+
+```python
+# Create a simple dataset
+X = np.array([-2, -1, 0, 1, 2, 1]).reshape(-1, 1)
+y = np.array([0, 0, 1, 1, 1, 0])
+```
+
+</Step>
+
+<Step title="Train and track your model">
+
+```python
+with mlflow.start_run():
+    # Train the model
+    lr = LogisticRegression()
+    lr.fit(X, y)
+    
+    # Evaluate the model
+    score = lr.score(X, y)
+    print(f"Score: {score}")
+    
+    # Log the score as a metric
+    mlflow.log_metric("score", score)
+    
+    # Create model signature
+    predictions = lr.predict(X)
+    signature = infer_signature(X, predictions)
+    
+    # Log the model
+    mlflow.sklearn.log_model(
+        lr, 
+        name="model", 
+        signature=signature, 
+        input_example=X
+    )
+    
+    print(f"Model saved in run {mlflow.active_run().info.run_id}")
+```
+
+</Step>
+
+</Steps>
+
+## Step 3: A More Realistic Example
+
+Let's work with a real dataset - the Wine Quality dataset. This example demonstrates best practices:
+
+```python
+import warnings
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import ElasticNet
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+import mlflow
+import mlflow.sklearn
+from mlflow.models import infer_signature
+
+warnings.filterwarnings("ignore")
+np.random.seed(40)
+
+# Load the wine quality dataset
+csv_url = (
+    "https://raw.githubusercontent.com/mlflow/mlflow/master/tests/datasets/winequality-red.csv"
+)
+data = pd.read_csv(csv_url, sep=";")
+
+# Split the data
+train, test = train_test_split(data)
+
+train_x = train.drop(["quality"], axis=1)
+test_x = test.drop(["quality"], axis=1)
+train_y = train[["quality"]]
+test_y = test[["quality"]]
+
+# Set hyperparameters
+alpha = 0.5
+l1_ratio = 0.5
+
+with mlflow.start_run():
+    # Train the model
+    lr = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=42)
+    lr.fit(train_x, train_y)
+    
+    # Make predictions
+    predicted_qualities = lr.predict(test_x)
+    
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(test_y, predicted_qualities))
+    mae = mean_absolute_error(test_y, predicted_qualities)
+    r2 = r2_score(test_y, predicted_qualities)
+    
+    print(f"Elasticnet model (alpha={alpha:f}, l1_ratio={l1_ratio:f}):")
+    print(f"  RMSE: {rmse}")
+    print(f"  MAE: {mae}")
+    print(f"  R2: {r2}")
+    
+    # Log parameters
+    mlflow.log_param("alpha", alpha)
+    mlflow.log_param("l1_ratio", l1_ratio)
+    
+    # Log metrics
+    mlflow.log_metric("rmse", rmse)
+    mlflow.log_metric("r2", r2)
+    mlflow.log_metric("mae", mae)
+    
+    # Create model signature
+    predictions = lr.predict(train_x)
+    signature = infer_signature(train_x, predictions)
+    
+    # Log the model
+    mlflow.sklearn.log_model(lr, name="model", signature=signature)
+```
+
+## Step 4: View Your Results
+
+Start the MLflow UI to explore your experiments:
+
+```bash
+mlflow ui
+```
+
+Navigate to `http://localhost:5000` in your browser. You'll see:
+
+- All your experiment runs
+- Parameters and metrics for each run
+- Logged artifacts including your model
+- Comparison charts and visualizations
+
+## Key Takeaways
+
+- **Always use `mlflow.start_run()`** to create a new experiment run
+- **Log parameters** for configuration values you want to track
+- **Log metrics** for performance measurements
+- **Use `infer_signature()`** to capture input/output schema
+- **Log models** with the appropriate flavor (e.g., `mlflow.sklearn.log_model`)
+
+## Next Steps
+
+- Learn about [hyperparameter tuning](/guides/hyperparameter-tuning)
+- Compare multiple models in [model comparison](/guides/model-comparison)
+- Deploy models to production in [production deployment](/guides/production-deployment)

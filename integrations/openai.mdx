@@ -1,0 +1,507 @@
+---
+title: OpenAI Integration
+description: Track OpenAI API calls and deploy models with MLflow
+---
+
+MLflow provides native integration with OpenAI for automatic tracing, model logging, and deployment of OpenAI-powered applications.
+
+## Installation
+
+```bash
+pip install mlflow openai
+```
+
+## Quick Start
+
+```python
+import os
+import openai
+import mlflow
+
+# Enable autologging
+mlflow.openai.autolog(
+    log_input_examples=True,
+    log_model_signatures=True,
+    log_models=True,
+    log_traces=True
+)
+
+# Create OpenAI client
+client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+# Make API call - automatically logged
+messages = [
+    {"role": "user", "content": "Tell me a joke in 50 words"}
+]
+
+with mlflow.start_run():
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0
+    )
+    print(response.choices[0].message.content)
+```
+
+## Autologging
+
+Enable autologging to automatically capture all OpenAI API calls:
+
+```python
+import mlflow
+
+mlflow.openai.autolog(
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    log_traces=True,
+    disable_openai_agent_tracer=True
+)
+```
+
+<ParamField path="disable" type="bool" default="False">
+  Disable the OpenAI autologging integration
+</ParamField>
+
+<ParamField path="exclusive" type="bool" default="False">
+  If True, autologged content is not logged to user-created fluent runs
+</ParamField>
+
+<ParamField path="log_traces" type="bool" default="True">
+  If True, traces are logged for OpenAI API calls
+</ParamField>
+
+<ParamField path="disable_openai_agent_tracer" type="bool" default="True">
+  If True, disable the OpenAI Agent SDK tracer
+</ParamField>
+
+### What Gets Logged
+
+When autologging is enabled, MLflow automatically captures:
+
+- **Traces**: Complete request/response traces with timing
+- **Token Usage**: Input tokens, output tokens, and total tokens
+- **Model Parameters**: Temperature, max_tokens, top_p, etc.
+- **Messages**: Input messages and generated responses
+- **Streaming**: Chunk-by-chunk data for streaming responses
+
+## Supported APIs
+
+MLflow supports autologging for:
+
+- `chat.completions.create()` - Chat completions
+- `chat.completions.parse()` - Structured outputs (OpenAI >= 1.92.0)
+- `completions.create()` - Text completions (legacy)
+- `embeddings.create()` - Text embeddings
+
+### Chat Completions
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.autolog()
+
+client = openai.OpenAI()
+
+with mlflow.start_run():
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is MLflow?"}
+        ],
+        temperature=0.7,
+        max_tokens=150
+    )
+    
+    # MLflow logs: model, messages, temperature, max_tokens, token usage
+```
+
+### Structured Outputs
+
+```python
+from pydantic import BaseModel
+import mlflow
+import openai
+
+class CalendarEvent(BaseModel):
+    name: str
+    date: str
+    participants: list[str]
+
+mlflow.openai.autolog()
+
+client = openai.OpenAI()
+
+with mlflow.start_run():
+    completion = client.beta.chat.completions.parse(
+        model="gpt-4o-2024-08-06",
+        messages=[
+            {"role": "user", "content": "Create a meeting for tomorrow with Alice and Bob"}
+        ],
+        response_format=CalendarEvent,
+    )
+    
+    event = completion.choices[0].message.parsed
+    # Structured output is automatically traced
+```
+
+### Embeddings
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.autolog()
+
+client = openai.OpenAI()
+
+with mlflow.start_run():
+    response = client.embeddings.create(
+        model="text-embedding-ada-002",
+        input=["MLflow is a platform for the ML lifecycle", "Track experiments with MLflow"]
+    )
+    
+    embeddings = [data.embedding for data in response.data]
+    # Token usage and dimensions are logged
+```
+
+### Streaming Responses
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.autolog()
+
+client = openai.OpenAI()
+
+with mlflow.start_run():
+    stream = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "Write a poem about MLflow"}],
+        stream=True
+    )
+    
+    for chunk in stream:
+        if chunk.choices[0].delta.content:
+            print(chunk.choices[0].delta.content, end="")
+    
+    # MLflow captures all chunks and reconstructs the full response
+```
+
+## Logging Models
+
+### Save a Model
+
+```python
+import mlflow.openai
+
+model_info = {
+    "model": "gpt-4",
+    "temperature": 0.7,
+    "max_tokens": 150
+}
+
+mlflow.openai.save_model(
+    model=model_info,
+    path="openai_model"
+)
+```
+
+### Log a Model
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    model_info = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "{prompt}"}],
+        "temperature": 0
+    }
+    
+    mlflow.openai.log_model(
+        model=model_info,
+        name="chat_model",
+        registered_model_name="gpt4_mini_chat"
+    )
+```
+
+### Load and Use a Model
+
+```python
+import mlflow.pyfunc
+import os
+
+# Set API key
+os.environ["OPENAI_API_KEY"] = "your-key"
+
+# Load model
+model_uri = "models:/gpt4_mini_chat/1"
+model = mlflow.pyfunc.load_model(model_uri)
+
+# Make predictions
+result = model.predict("What is machine learning?")
+print(result)
+```
+
+## Tracing
+
+MLflow automatically traces OpenAI API calls:
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.autolog(log_traces=True)
+
+client = openai.OpenAI()
+
+with mlflow.start_run() as run:
+    # Multiple API calls in one run
+    for prompt in ["What is MLflow?", "How to track experiments?"]:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+    
+    # View traces in MLflow UI
+    print(f"Trace URL: {mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}/traces")
+```
+
+### Trace Information
+
+Each trace includes:
+- Request parameters (model, temperature, etc.)
+- Input messages
+- Output response
+- Token usage (prompt_tokens, completion_tokens, total_tokens)
+- Latency and timing
+- Streaming chunks (if applicable)
+
+## Advanced Usage
+
+### Async Calls
+
+```python
+import asyncio
+import mlflow
+import openai
+
+mlflow.openai.autolog()
+
+async def generate_text():
+    client = openai.AsyncOpenAI()
+    
+    with mlflow.start_run():
+        response = await client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hello!"}]
+        )
+        return response.choices[0].message.content
+
+asyncio.run(generate_text())
+```
+
+### Function Calling
+
+```python
+import mlflow
+import openai
+import json
+
+mlflow.openai.autolog()
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the current weather",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string"},
+                    "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}
+                },
+                "required": ["location"]
+            }
+        }
+    }
+]
+
+client = openai.OpenAI()
+
+with mlflow.start_run():
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+        tools=tools,
+        tool_choice="auto"
+    )
+    
+    # Function calls are automatically traced
+    tool_call = response.choices[0].message.tool_calls[0]
+    print(f"Function: {tool_call.function.name}")
+    print(f"Arguments: {tool_call.function.arguments}")
+```
+
+### Azure OpenAI
+
+```python
+import mlflow
+from openai import AzureOpenAI
+
+mlflow.openai.autolog()
+
+client = AzureOpenAI(
+    api_key=os.environ["AZURE_OPENAI_KEY"],
+    api_version="2024-02-01",
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"]
+)
+
+with mlflow.start_run():
+    response = client.chat.completions.create(
+        model="gpt-4",  # Deployment name
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+```
+
+## Token Usage Tracking
+
+MLflow automatically tracks token usage:
+
+```python
+import mlflow
+import openai
+
+mlflow.openai.autolog()
+
+client = openai.OpenAI()
+
+with mlflow.start_run() as run:
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": "Explain MLflow"}]
+    )
+    
+    # Token usage is automatically logged as span attributes
+    # View in MLflow UI under trace details
+```
+
+Token metrics include:
+- `prompt_tokens`: Input tokens
+- `completion_tokens`: Output tokens
+- `total_tokens`: Total tokens used
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Secure API Keys">
+    Never hardcode API keys. Use environment variables:
+    
+    ```python
+    import os
+    api_key = os.environ.get("OPENAI_API_KEY")
+    client = openai.OpenAI(api_key=api_key)
+    ```
+  </Accordion>
+  
+  <Accordion title="Track Costs">
+    Log token usage to estimate costs:
+    
+    ```python
+    usage = response.usage
+    cost = (usage.prompt_tokens * 0.00003 + 
+            usage.completion_tokens * 0.00006)
+    mlflow.log_metric("estimated_cost", cost)
+    ```
+  </Accordion>
+  
+  <Accordion title="Version Your Prompts">
+    Log prompts as artifacts for reproducibility:
+    
+    ```python
+    mlflow.log_dict(messages, "prompt.json")
+    mlflow.log_param("model", "gpt-4")
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Errors Gracefully">
+    Wrap API calls in try-except blocks:
+    
+    ```python
+    try:
+        response = client.chat.completions.create(...)
+    except openai.APIError as e:
+        mlflow.log_param("error", str(e))
+        raise
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m models:/gpt4_mini_chat/1 -p 5000
+```
+
+Test the endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:5000/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{"inputs": "What is MLflow?"}'
+```
+
+### Batch Inference
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+model = mlflow.pyfunc.load_model("models:/gpt4_mini_chat/1")
+
+# Batch predictions
+prompts = pd.DataFrame({
+    "prompt": [
+        "What is MLflow?",
+        "How to log models?",
+        "What is the Model Registry?"
+    ]
+})
+
+results = model.predict(prompts)
+```
+
+## Limitations
+
+- Requires OpenAI >= 1.0
+- API keys must be available at inference time
+- Streaming responses are reconstructed for logging
+- Agent SDK tracing can be disabled to avoid conflicts
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LangChain Integration" icon="link" href="/integrations/langchain">
+    Build chains with OpenAI and LangChain
+  </Card>
+  
+  <Card title="Model Tracing" icon="route" href="/tracking/tracing">
+    Deep dive into MLflow tracing
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and deploy OpenAI models
+  </Card>
+  
+  <Card title="Deployment" icon="rocket" href="/deployment">
+    Deploy models to production
+  </Card>
+</CardGroup>

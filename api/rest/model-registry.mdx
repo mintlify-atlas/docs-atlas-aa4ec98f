@@ -1,0 +1,968 @@
+---
+title: Model Registry API
+description: REST API endpoints for managing registered models and model versions
+---
+
+## Create Registered Model
+
+Create a new registered model with a unique name.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "description": "My production model",
+    "tags": [
+      {"key": "team", "value": "ml-platform"},
+      {"key": "stage", "value": "production"}
+    ]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/create
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/create",
+    json={
+        "name": "my-model",
+        "description": "My production model",
+        "tags": [
+            {"key": "team", "value": "ml-platform"},
+            {"key": "stage", "value": "production"}
+        ]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/registered-models/create`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Unique name for the registered model.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional description for the registered model.
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Additional metadata for the registered model.
+  
+  <Expandable title="Tag object">
+    <ParamField body="key" type="string" required>
+      Tag key.
+    </ParamField>
+    <ParamField body="value" type="string" required>
+      Tag value.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="registered_model" type="object">
+  <Expandable title="RegisteredModel object">
+    <ResponseField name="name" type="string">
+      Unique name for the model.
+    </ResponseField>
+    <ResponseField name="creation_timestamp" type="integer">
+      Unix timestamp in milliseconds when created.
+    </ResponseField>
+    <ResponseField name="last_updated_timestamp" type="integer">
+      Unix timestamp in milliseconds of last update.
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Model description.
+    </ResponseField>
+    <ResponseField name="latest_versions" type="array">
+      Collection of latest model versions for each stage.
+    </ResponseField>
+    <ResponseField name="tags" type="array">
+      Array of tag objects.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Response Example
+{
+  "registered_model": {
+    "name": "my-model",
+    "creation_timestamp": 1678886400000,
+    "last_updated_timestamp": 1678886400000,
+    "description": "My production model",
+    "latest_versions": [],
+    "tags": [
+      {"key": "team", "value": "ml-platform"}
+    ]
+  }
+}
+```
+
+---
+
+## Get Registered Model
+
+Retrieve a registered model by name.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/registered-models/get?name=my-model"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/get",
+    params={"name": "my-model"}
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/registered-models/get`
+
+### Query Parameters
+
+<ParamField query="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+### Response
+
+<ResponseField name="registered_model" type="object">
+  Complete registered model object including all versions and tags.
+</ResponseField>
+
+---
+
+## Search Registered Models
+
+Search for registered models matching filter criteria.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/registered-models/search?filter=name%20LIKE%20%27my-%25%27&max_results=100"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/search",
+    params={
+        "filter": "name LIKE 'my-%'",
+        "max_results": 100
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/registered-models/search`
+
+### Query Parameters
+
+<ParamField query="filter" type="string">
+  Filter expression. Example: `name LIKE 'my-model%'`
+  
+  Supported operators: `=`, `!=`, `LIKE`, `ILIKE`
+</ParamField>
+
+<ParamField query="max_results" type="integer">
+  Maximum number of models to return. Default is 100, maximum is 1000.
+</ParamField>
+
+<ParamField query="order_by" type="array">
+  List of columns for ordering. Can include `name` and `last_updated_timestamp` with optional `DESC` or `ASC`.
+</ParamField>
+
+<ParamField query="page_token" type="string">
+  Token for pagination.
+</ParamField>
+
+### Response
+
+<ResponseField name="registered_models" type="array">
+  Array of registered model objects.
+</ResponseField>
+
+<ResponseField name="next_page_token" type="string">
+  Token for retrieving the next page.
+</ResponseField>
+
+---
+
+## Update Registered Model
+
+Update a registered model's description.
+
+<CodeGroup>
+```bash cURL
+curl -X PATCH \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "description": "Updated description"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/update
+```
+
+```python Python
+import requests
+
+response = requests.patch(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/update",
+    json={
+        "name": "my-model",
+        "description": "Updated description"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `PATCH /api/2.0/mlflow/registered-models/update`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Updated description.
+</ParamField>
+
+---
+
+## Rename Registered Model
+
+Rename a registered model.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "new_name": "my-renamed-model"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/rename
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/rename",
+    json={
+        "name": "my-model",
+        "new_name": "my-renamed-model"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/registered-models/rename`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Current name of the registered model.
+</ParamField>
+
+<ParamField body="new_name" type="string" required>
+  New unique name for the model.
+</ParamField>
+
+---
+
+## Delete Registered Model
+
+Delete a registered model and all its versions.
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-model"}' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/delete
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/delete",
+    json={"name": "my-model"}
+)
+```
+</CodeGroup>
+
+**Endpoint:** `DELETE /api/2.0/mlflow/registered-models/delete`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the registered model to delete.
+</ParamField>
+
+---
+
+## Create Model Version
+
+Create a new model version from a run's artifacts.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "source": "runs:/abc123def456/model",
+    "run_id": "abc123def456",
+    "description": "Model from experiment run",
+    "tags": [
+      {"key": "validation_status", "value": "approved"}
+    ]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/create
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/create",
+    json={
+        "name": "my-model",
+        "source": "runs:/abc123def456/model",
+        "run_id": "abc123def456",
+        "description": "Model from experiment run",
+        "tags": [
+            {"key": "validation_status", "value": "approved"}
+        ]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/model-versions/create`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField body="source" type="string" required>
+  URI indicating the location of model artifacts. Typically `runs:/<run_id>/model`.
+</ParamField>
+
+<ParamField body="run_id" type="string">
+  MLflow run ID that generated the model.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional description for the model version.
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Additional metadata for the model version.
+</ParamField>
+
+<ParamField body="run_link" type="string">
+  Direct link to the run that generated this version.
+</ParamField>
+
+### Response
+
+<ResponseField name="model_version" type="object">
+  <Expandable title="ModelVersion object">
+    <ResponseField name="name" type="string">
+      Model name.
+    </ResponseField>
+    <ResponseField name="version" type="string">
+      Model version number.
+    </ResponseField>
+    <ResponseField name="creation_timestamp" type="integer">
+      Unix timestamp when created.
+    </ResponseField>
+    <ResponseField name="current_stage" type="string">
+      Current deployment stage (None, Staging, Production, Archived).
+    </ResponseField>
+    <ResponseField name="source" type="string">
+      URI of source model artifacts.
+    </ResponseField>
+    <ResponseField name="run_id" type="string">
+      Associated run ID.
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Version status: PENDING_REGISTRATION, FAILED_REGISTRATION, or READY.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Get Model Version
+
+Retrieve a specific model version.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/model-versions/get?name=my-model&version=1"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/get",
+    params={
+        "name": "my-model",
+        "version": "1"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/model-versions/get`
+
+### Query Parameters
+
+<ParamField query="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField query="version" type="string" required>
+  Model version number.
+</ParamField>
+
+---
+
+## Search Model Versions
+
+Search for model versions matching filter criteria.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/model-versions/search?filter=name%3D%27my-model%27%20AND%20version%3E1"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/search",
+    params={"filter": "name='my-model' AND version>1"}
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/model-versions/search`
+
+### Query Parameters
+
+<ParamField query="filter" type="string">
+  Filter expression. Example: `name='my-model'` or `run_id='abc123'`
+</ParamField>
+
+<ParamField query="max_results" type="integer">
+  Maximum results. Default is 200,000.
+</ParamField>
+
+<ParamField query="order_by" type="array">
+  Ordering columns. Can include `name`, `version`, `stage` with optional `DESC` or `ASC`.
+</ParamField>
+
+<ParamField query="page_token" type="string">
+  Pagination token.
+</ParamField>
+
+---
+
+## Update Model Version
+
+Update a model version's description.
+
+<CodeGroup>
+```bash cURL
+curl -X PATCH \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "version": "1",
+    "description": "Updated model version description"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/update
+```
+
+```python Python
+import requests
+
+response = requests.patch(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/update",
+    json={
+        "name": "my-model",
+        "version": "1",
+        "description": "Updated model version description"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `PATCH /api/2.0/mlflow/model-versions/update`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Updated description.
+</ParamField>
+
+---
+
+## Transition Model Version Stage
+
+Transition a model version to a different stage.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "version": "1",
+    "stage": "Production",
+    "archive_existing_versions": true
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/transition-stage
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/transition-stage",
+    json={
+        "name": "my-model",
+        "version": "1",
+        "stage": "Production",
+        "archive_existing_versions": True
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/model-versions/transition-stage`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number.
+</ParamField>
+
+<ParamField body="stage" type="string" required>
+  Target stage: `None`, `Staging`, `Production`, or `Archived`.
+</ParamField>
+
+<ParamField body="archive_existing_versions" type="boolean" required>
+  If true, archive all existing versions in the target stage. Required parameter.
+</ParamField>
+
+---
+
+## Delete Model Version
+
+Delete a specific model version.
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "version": "1"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/delete
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/delete",
+    json={
+        "name": "my-model",
+        "version": "1"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `DELETE /api/2.0/mlflow/model-versions/delete`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number to delete.
+</ParamField>
+
+---
+
+## Get Latest Versions
+
+Get the latest model versions for specified stages.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "stages": ["Production", "Staging"]
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/get-latest-versions
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/get-latest-versions",
+    json={
+        "name": "my-model",
+        "stages": ["Production", "Staging"]
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/registered-models/get-latest-versions` or `GET /api/2.0/mlflow/registered-models/get-latest-versions`
+
+### Request Body / Query Parameters
+
+<ParamField body="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField body="stages" type="array">
+  List of stages. If empty, returns latest version for each stage including `None`.
+</ParamField>
+
+### Response
+
+<ResponseField name="model_versions" type="array">
+  Latest READY model versions for requested stages.
+</ResponseField>
+
+---
+
+## Set Model Version Tag
+
+Set a tag on a model version.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "version": "1",
+    "key": "validation_status",
+    "value": "approved"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/set-tag
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/set-tag",
+    json={
+        "name": "my-model",
+        "version": "1",
+        "key": "validation_status",
+        "value": "approved"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/model-versions/set-tag`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key. Maximum 250 bytes.
+</ParamField>
+
+<ParamField body="value" type="string" required>
+  Tag value.
+</ParamField>
+
+---
+
+## Delete Model Version Tag
+
+Delete a tag from a model version.
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "version": "1",
+    "key": "validation_status"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/model-versions/delete-tag
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/delete-tag",
+    json={
+        "name": "my-model",
+        "version": "1",
+        "key": "validation_status"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `DELETE /api/2.0/mlflow/model-versions/delete-tag`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number.
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Tag key to delete. Maximum 255 bytes.
+</ParamField>
+
+---
+
+## Set Registered Model Alias
+
+Set an alias pointing to a specific model version.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "alias": "champion",
+    "version": "3"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/alias
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/alias",
+    json={
+        "name": "my-model",
+        "alias": "champion",
+        "version": "3"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `POST /api/2.0/mlflow/registered-models/alias`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField body="alias" type="string" required>
+  Alias name. Maximum 256 bytes. If alias exists, it will be updated to point to the new version.
+</ParamField>
+
+<ParamField body="version" type="string" required>
+  Model version number to associate with the alias.
+</ParamField>
+
+---
+
+## Delete Registered Model Alias
+
+Delete an alias from a registered model.
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-model",
+    "alias": "champion"
+  }' \
+  http://localhost:5000/api/2.0/mlflow/registered-models/alias
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/alias",
+    json={
+        "name": "my-model",
+        "alias": "champion"
+    }
+)
+```
+</CodeGroup>
+
+**Endpoint:** `DELETE /api/2.0/mlflow/registered-models/alias`
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField body="alias" type="string" required>
+  Alias name to delete. Maximum 256 bytes.
+</ParamField>
+
+---
+
+## Get Model Version by Alias
+
+Retrieve a model version by its alias.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/registered-models/alias?name=my-model&alias=champion"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/registered-models/alias",
+    params={
+        "name": "my-model",
+        "alias": "champion"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/registered-models/alias`
+
+### Query Parameters
+
+<ParamField query="name" type="string" required>
+  Name of the registered model.
+</ParamField>
+
+<ParamField query="alias" type="string" required>
+  Alias name. Maximum 256 bytes.
+</ParamField>
+
+### Response
+
+<ResponseField name="model_version" type="object">
+  The model version associated with the alias.
+</ResponseField>
+
+---
+
+## Get Model Version Download URI
+
+Get the download URI for model version artifacts.
+
+<CodeGroup>
+```bash cURL
+curl "http://localhost:5000/api/2.0/mlflow/model-versions/get-download-uri?name=my-model&version=1"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:5000/api/2.0/mlflow/model-versions/get-download-uri",
+    params={
+        "name": "my-model",
+        "version": "1"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+**Endpoint:** `GET /api/2.0/mlflow/model-versions/get-download-uri`
+
+### Query Parameters
+
+<ParamField query="name" type="string" required>
+  Model name.
+</ParamField>
+
+<ParamField query="version" type="string" required>
+  Model version number.
+</ParamField>
+
+### Response
+
+<ResponseField name="artifact_uri" type="string">
+  URI where artifacts for this model version are stored.
+</ResponseField>
+
+```json Response Example
+{
+  "artifact_uri": "s3://my-bucket/mlflow/1/abc123def456/artifacts/model"
+}
+```

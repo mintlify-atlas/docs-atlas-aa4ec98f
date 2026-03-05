@@ -1,0 +1,398 @@
+---
+title: LangChain Integration
+description: Track and deploy LangChain applications with MLflow
+---
+
+MLflow provides native integration with LangChain for building, tracking, and deploying LLM applications. This integration enables automatic tracing, model logging, and seamless deployment of LangChain chains and agents.
+
+## Installation
+
+```bash
+pip install mlflow langchain langchain-openai
+```
+
+## Quick Start
+
+```python
+import os
+from operator import itemgetter
+from langchain_openai import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.schema.output_parser import StrOutputParser
+from langchain.schema.runnable import RunnableLambda
+import mlflow
+
+# Enable autologging
+mlflow.langchain.autolog(
+    log_input_examples=True,
+    log_model_signatures=True,
+    log_models=True,
+    log_traces=True
+)
+
+# Create a chain
+llm = ChatOpenAI(temperature=0.9)
+prompt = PromptTemplate(
+    input_variables=["question"],
+    template="Answer this question: {question}"
+)
+
+chain = prompt | llm | StrOutputParser()
+
+# Use the chain - MLflow automatically logs everything
+with mlflow.start_run():
+    result = chain.invoke({"question": "What is MLflow?"})
+    print(result)
+```
+
+## Autologging
+
+Enable autologging to automatically capture traces, models, and metadata:
+
+```python
+import mlflow
+
+mlflow.langchain.autolog(
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    log_traces=True,
+    run_tracer_inline=False
+)
+```
+
+<ParamField path="disable" type="bool" default="False">
+  Disable the LangChain autologging integration
+</ParamField>
+
+<ParamField path="exclusive" type="bool" default="False">
+  If True, autologged content is not logged to user-created fluent runs
+</ParamField>
+
+<ParamField path="log_traces" type="bool" default="True">
+  If True, traces are logged for LangChain models using MlflowLangchainTracer
+</ParamField>
+
+<ParamField path="run_tracer_inline" type="bool" default="False">
+  If True, the MLflow tracer runs inline for proper async context propagation
+</ParamField>
+
+### What Gets Logged
+
+When autologging is enabled, MLflow automatically captures:
+
+- **Traces**: Complete execution traces with inputs, outputs, and timing
+- **Models**: LangChain chains and agents as MLflow models
+- **Parameters**: Model configuration and hyperparameters
+- **Metadata**: Chain structure and component information
+
+## Logging Models
+
+### Save a Model
+
+```python
+import mlflow.langchain
+from langchain_openai import ChatOpenAI
+from langchain.prompts import PromptTemplate
+
+llm = ChatOpenAI()
+prompt = PromptTemplate(
+    input_variables=["product"],
+    template="What is a good name for a company that makes {product}?"
+)
+chain = prompt | llm
+
+# Save the chain
+mlflow.langchain.save_model(chain, "langchain_model")
+```
+
+### Log a Model
+
+```python
+import mlflow
+from mlflow.models import infer_signature
+
+with mlflow.start_run():
+    # Create signature
+    input_example = {"product": "colorful socks"}
+    output = chain.invoke(input_example)
+    signature = infer_signature(input_example, output)
+    
+    # Log the model
+    mlflow.langchain.log_model(
+        chain,
+        name="my_chain",
+        signature=signature,
+        input_example=input_example,
+        registered_model_name="langchain_model"
+    )
+```
+
+### Load a Model
+
+```python
+import mlflow.langchain
+
+# Load as native LangChain model
+model_uri = "runs:/abc123/my_chain"
+chain = mlflow.langchain.load_model(model_uri)
+result = chain.invoke({"product": "eco-friendly bottles"})
+
+# Load as PyFunc for deployment
+import mlflow.pyfunc
+pyfunc_model = mlflow.pyfunc.load_model(model_uri)
+result = pyfunc_model.predict({"product": "eco-friendly bottles"})
+```
+
+## Tracing
+
+MLflow automatically traces LangChain execution with the `MlflowLangchainTracer`:
+
+```python
+import mlflow
+from langchain.schema.runnable import RunnableSequence
+
+mlflow.langchain.autolog(log_traces=True)
+
+with mlflow.start_run() as run:
+    # All chain executions are automatically traced
+    chain = create_complex_chain()
+    result = chain.invoke({"input": "data"})
+    
+    # View traces in MLflow UI
+    print(f"View traces at: {mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
+```
+
+### Trace Details
+
+Traces capture:
+- Input and output for each chain step
+- Execution time per component
+- Token usage for LLM calls
+- Error information if failures occur
+
+## Advanced Usage
+
+### Custom Chains with LCEL
+
+```python
+from operator import itemgetter
+from langchain.schema.runnable import RunnableLambda
+import mlflow
+
+mlflow.langchain.autolog()
+
+def extract_question(input):
+    return input[-1]["content"]
+
+def extract_history(input):
+    return input[:-1]
+
+prompt_with_history = PromptTemplate(
+    input_variables=["chat_history", "question"],
+    template="History: {chat_history}\nQuestion: {question}"
+)
+
+chain_with_history = (
+    {
+        "question": itemgetter("messages") | RunnableLambda(extract_question),
+        "chat_history": itemgetter("messages") | RunnableLambda(extract_history),
+    }
+    | prompt_with_history
+    | llm
+    | StrOutputParser()
+)
+
+inputs = {"messages": [{"role": "user", "content": "Who owns MLflow?"}]}
+result = chain_with_history.invoke(inputs)
+```
+
+### Agents and Tools
+
+```python
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.tools import Tool
+import mlflow
+
+mlflow.langchain.autolog()
+
+# Define tools
+def search_tool(query: str) -> str:
+    return f"Search results for: {query}"
+
+tools = [
+    Tool(
+        name="Search",
+        func=search_tool,
+        description="Useful for searching information"
+    )
+]
+
+# Create agent
+agent = create_openai_functions_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools)
+
+# Agent executions are automatically traced
+with mlflow.start_run():
+    result = agent_executor.invoke({"input": "Search for MLflow documentation"})
+```
+
+### Async Support
+
+For async chains with proper context propagation:
+
+```python
+import asyncio
+import mlflow
+from langchain_openai import ChatOpenAI
+
+mlflow.langchain.autolog(run_tracer_inline=True)
+
+async def run_async_chain():
+    llm = ChatOpenAI()
+    chain = prompt | llm
+    
+    with mlflow.start_run():
+        result = await chain.ainvoke({"product": "smart watches"})
+        return result
+
+asyncio.run(run_async_chain())
+```
+
+## Model Registry
+
+Register LangChain models for version control:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    mlflow.langchain.log_model(
+        chain,
+        name="chain",
+        registered_model_name="production_chain"
+    )
+
+# Load from registry
+from mlflow import MlflowClient
+
+client = MlflowClient()
+model_version = client.get_latest_versions("production_chain", stages=["Production"])[0]
+model = mlflow.langchain.load_model(f"models:/production_chain/{model_version.version}")
+```
+
+## Deployment
+
+### Serve as REST API
+
+```bash
+mlflow models serve -m runs:/<run_id>/chain -p 5000
+```
+
+Test the endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:5000/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{"dataframe_split": {"data": [["colorful socks"]]}}'
+```
+
+### Batch Inference
+
+```python
+import mlflow.pyfunc
+import pandas as pd
+
+model = mlflow.pyfunc.load_model("runs:/<run_id>/chain")
+
+# Batch predictions
+inputs = pd.DataFrame({
+    "product": ["socks", "shoes", "hats"]
+})
+
+predictions = model.predict(inputs)
+```
+
+## Supported Components
+
+MLflow supports logging the following LangChain components:
+
+- **Chains**: All LCEL and legacy chains
+- **Agents**: OpenAI functions, ReAct, and custom agents
+- **Retrievers**: Vector store retrievers (without persistence)
+- **Prompts**: Prompt templates and chat prompts
+- **LLMs**: OpenAI, Anthropic, and other LLM providers
+
+<Warning>
+  Chains containing retrievers with external dependencies (vector databases) require those dependencies to be available at load time.
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Log with Signatures">
+    Include model signatures to ensure proper input validation:
+    
+    ```python
+    signature = infer_signature(input_example, output_example)
+    mlflow.langchain.log_model(chain, "chain", signature=signature)
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Input Examples">
+    Provide input examples for better model documentation:
+    
+    ```python
+    mlflow.langchain.log_model(
+        chain,
+        "chain",
+        input_example={"product": "example"}
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Tracing for Debugging">
+    Traces help debug complex chains:
+    
+    ```python
+    mlflow.langchain.autolog(log_traces=True)
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Environment Variables">
+    LangChain models may require API keys. Set them before loading:
+    
+    ```python
+    import os
+    os.environ["OPENAI_API_KEY"] = "your-key"
+    model = mlflow.langchain.load_model(model_uri)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Limitations
+
+- Retrievers with external state cannot be fully serialized
+- Some custom components may require manual dependency specification
+- Async chains require `run_tracer_inline=True` for proper tracing
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OpenAI Integration" icon="brain" href="/integrations/openai">
+    Track OpenAI API calls with MLflow
+  </Card>
+  
+  <Card title="Model Tracing" icon="route" href="/tracking/tracing">
+    Learn more about MLflow tracing
+  </Card>
+  
+  <Card title="Model Deployment" icon="rocket" href="/deployment">
+    Deploy LangChain models to production
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/langchain">
+    Full API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,353 @@
+---
+title: Experiment Organization Best Practices
+description: Learn how to effectively organize experiments and runs in MLflow for better tracking and reproducibility
+---
+
+## Overview
+
+Effective experiment organization is crucial for maintaining clarity, reproducibility, and collaboration in machine learning projects. MLflow provides powerful tools for structuring your experiments, runs, and metadata.
+
+## Experiment Structure Strategy
+
+### Use Hierarchical Naming Conventions
+
+Organize experiments using a consistent naming pattern that reflects your project structure:
+
+```python
+import mlflow
+
+# Team/Project/Phase pattern
+mlflow.set_experiment("/ml-team/recommendation-system/feature-engineering")
+mlflow.set_experiment("/ml-team/recommendation-system/model-training")
+mlflow.set_experiment("/ml-team/recommendation-system/hyperparameter-tuning")
+
+# Use case/Model type pattern
+mlflow.set_experiment("/fraud-detection/random-forest")
+mlflow.set_experiment("/fraud-detection/neural-network")
+```
+
+<Accordion title="Why hierarchical naming matters">
+Hierarchical naming helps teams:
+- Quickly locate related experiments
+- Understand the context and purpose of each experiment
+- Filter and search experiments programmatically
+- Maintain consistent organization across large projects
+</Accordion>
+
+### Set Experiment Tags for Metadata
+
+Use experiment tags to add searchable metadata:
+
+```python
+import mlflow
+
+experiment_id = mlflow.create_experiment(
+    "sentiment-analysis-bert",
+    tags={
+        "team": "nlp",
+        "project": "customer-feedback",
+        "priority": "high",
+        "data_version": "2024-03"
+    }
+)
+
+# Add tags to existing experiments
+mlflow.set_experiment_tag("model_type", "transformer")
+mlflow.set_experiment_tag("framework", "pytorch")
+```
+
+### Define Primary Metrics
+
+Set primary metrics at the experiment level to indicate what optimization goal matters most:
+
+```python
+import mlflow
+
+mlflow.set_experiment("image-classification")
+mlflow.set_experiment_tag("mlflow.experiment.primaryMetric.name", "val_accuracy")
+mlflow.set_experiment_tag("mlflow.experiment.primaryMetric.greaterIsBetter", "true")
+```
+
+## Run Organization Best Practices
+
+### Use Descriptive Run Names
+
+Always set meaningful run names that describe what makes each run unique:
+
+```python
+import mlflow
+
+with mlflow.start_run(run_name="resnet50_lr0.001_batch32_aug") as run:
+    # Your training code
+    mlflow.log_params({
+        "model": "resnet50",
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "augmentation": "standard"
+    })
+```
+
+<Accordion title="Run naming conventions">
+Good run names should:
+- Include key differentiating parameters
+- Be concise but descriptive
+- Use consistent formatting (e.g., lowercase with underscores)
+- Avoid timestamps in names (MLflow tracks creation time automatically)
+- Include experiment iteration numbers if applicable (e.g., "baseline_v1", "baseline_v2")
+</Accordion>
+
+### Leverage Run Tags Effectively
+
+Tags enable powerful filtering and organization:
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    # System tags for tracking
+    mlflow.set_tag("mlflow.runName", "bert_base_finetuned")
+    mlflow.set_tag("mlflow.note.content", "Testing with reduced learning rate")
+    
+    # Custom tags for organization
+    mlflow.set_tags({
+        "stage": "development",
+        "data_quality": "cleaned",
+        "model_size": "base",
+        "gpu_type": "v100"
+    })
+```
+
+### Organize Nested Runs for Complex Workflows
+
+Use parent-child run relationships for hyperparameter sweeps, cross-validation, or multi-stage pipelines:
+
+```python
+import mlflow
+
+# Parent run for the entire hyperparameter search
+with mlflow.start_run(run_name="hyperparameter_search") as parent_run:
+    mlflow.log_param("search_strategy", "grid")
+    
+    # Child runs for each configuration
+    for lr in [0.001, 0.01, 0.1]:
+        with mlflow.start_run(run_name=f"lr_{lr}", nested=True) as child_run:
+            mlflow.log_param("learning_rate", lr)
+            # Training code here
+            accuracy = train_model(lr=lr)
+            mlflow.log_metric("accuracy", accuracy)
+    
+    # Log best result to parent
+    mlflow.log_metric("best_accuracy", max_accuracy)
+```
+
+<Accordion title="When to use nested runs">
+Nested runs are ideal for:
+- Hyperparameter tuning with multiple trials
+- K-fold cross-validation (one parent, K children)
+- Multi-stage pipelines (preprocessing → training → evaluation)
+- Ensemble methods where you train multiple models
+- A/B testing different model variants
+</Accordion>
+
+## Search and Filter Strategies
+
+### Use MLflow Search Syntax
+
+Leverage powerful search capabilities to find relevant runs:
+
+```python
+import mlflow
+
+# Search by metrics
+runs = mlflow.search_runs(
+    experiment_ids=["1"],
+    filter_string="metrics.accuracy > 0.95 and params.model = 'resnet50'",
+    order_by=["metrics.accuracy DESC"]
+)
+
+# Search by tags
+runs = mlflow.search_runs(
+    filter_string="tags.stage = 'production' and tags.data_quality = 'validated'"
+)
+
+# Complex queries
+runs = mlflow.search_runs(
+    filter_string="""
+        metrics.f1_score > 0.8 AND 
+        params.learning_rate < 0.01 AND
+        tags.gpu_type = 'a100'
+    """,
+    max_results=50
+)
+```
+
+### Search Across Multiple Experiments
+
+```python
+import mlflow
+
+# Search across all experiments for a team
+experiments = mlflow.search_experiments(
+    filter_string="tags.team = 'nlp'"
+)
+
+experiment_ids = [exp.experiment_id for exp in experiments]
+all_runs = mlflow.search_runs(experiment_ids=experiment_ids)
+```
+
+## Artifact Organization
+
+### Structure Your Artifacts Logically
+
+Organize artifacts with clear directory structures:
+
+```python
+import mlflow
+import matplotlib.pyplot as plt
+
+with mlflow.start_run():
+    # Model artifacts
+    mlflow.sklearn.log_model(model, "model")
+    
+    # Visualizations in dedicated folder
+    fig, ax = plt.subplots()
+    ax.plot(history)
+    mlflow.log_figure(fig, "visualizations/training_history.png")
+    
+    # Data artifacts
+    mlflow.log_dict(feature_importance, "analysis/feature_importance.json")
+    
+    # Reports and documentation
+    mlflow.log_text(report_content, "reports/evaluation_report.txt")
+```
+
+<Accordion title="Artifact organization tips">
+- Use consistent folder names across runs (e.g., "models", "plots", "data")
+- Group related artifacts together
+- Include model cards or README files for context
+- Log both raw outputs and processed visualizations
+- Keep artifact sizes reasonable (compress large files)
+</Accordion>
+
+## Data Tracking and Lineage
+
+### Log Dataset Information
+
+Track data sources and versions for reproducibility:
+
+```python
+import mlflow
+from mlflow.data.pandas_dataset import from_pandas
+
+with mlflow.start_run():
+    # Log dataset metadata
+    dataset = from_pandas(
+        df,
+        source="s3://bucket/data/training_v3.parquet",
+        name="customer_churn_training",
+        targets="churned"
+    )
+    mlflow.log_input(dataset, context="training")
+    
+    # Log data version and characteristics
+    mlflow.log_params({
+        "data_version": "2024-03-15",
+        "num_samples": len(df),
+        "num_features": len(df.columns),
+        "class_balance": df['churned'].value_counts().to_dict()
+    })
+```
+
+### Track Data Transformations
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    mlflow.set_tag("preprocessing_steps", "scaling,encoding,feature_engineering")
+    
+    mlflow.log_params({
+        "scaler": "StandardScaler",
+        "encoder": "OneHotEncoder",
+        "feature_engineering": "polynomial_features_degree_2"
+    })
+    
+    # Log the preprocessing pipeline
+    mlflow.sklearn.log_model(preprocessing_pipeline, "preprocessing")
+```
+
+## Workspace Organization
+
+### Use Workspaces for Team Isolation
+
+Organize experiments into workspaces for different teams or projects:
+
+```python
+import mlflow
+
+# Create team-specific workspaces
+mlflow.create_workspace(
+    name="nlp-team",
+    description="Natural Language Processing experiments"
+)
+
+# Set active workspace
+mlflow.set_workspace("nlp-team")
+
+# All subsequent experiments created in this workspace
+mlflow.set_experiment("sentiment-analysis")
+```
+
+## Lifecycle Management
+
+### Clean Up Old Experiments
+
+Regularly archive or delete experiments that are no longer needed:
+
+```python
+import mlflow
+
+# Delete old experiments
+mlflow.delete_experiment(experiment_id)
+
+# Or search and bulk delete
+experiments = mlflow.search_experiments(
+    filter_string="tags.status = 'archived'"
+)
+
+for exp in experiments:
+    mlflow.delete_experiment(exp.experiment_id)
+```
+
+### Archive Completed Projects
+
+Use tags to mark experiments as archived rather than deleting:
+
+```python
+import mlflow
+
+mlflow.set_experiment("old-project")
+mlflow.set_experiment_tag("status", "archived")
+mlflow.set_experiment_tag("archived_date", "2024-03-15")
+mlflow.set_experiment_tag("archived_reason", "project_completed")
+```
+
+<Accordion title="Lifecycle management best practices">
+- Tag experiments with status (active, archived, deprecated)
+- Document why experiments were archived
+- Maintain archived experiments for at least one release cycle
+- Export important results before deletion
+- Use soft deletes (tags) before hard deletes
+</Accordion>
+
+## Summary
+
+Effective experiment organization in MLflow requires:
+- Consistent naming conventions and hierarchies
+- Rich tagging for searchability
+- Proper use of nested runs for complex workflows
+- Well-structured artifact organization
+- Comprehensive data lineage tracking
+- Regular lifecycle management
+
+By following these best practices, you'll maintain clean, searchable, and reproducible experiment tracking that scales with your team and projects.

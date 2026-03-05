@@ -1,0 +1,306 @@
+---
+title: "Hyperparameter Tuning with MLflow"
+description: "Optimize your models using grid search and Hyperopt while tracking all experiments"
+---
+
+Hyperparameter tuning is crucial for achieving optimal model performance. This guide shows you how to systematically explore hyperparameter spaces while tracking all experiments with MLflow.
+
+## What You'll Learn
+
+- Hyperparameter tuning with scikit-learn's GridSearchCV
+- Using MLflow's autologging for automatic tracking
+- Advanced tuning with Hyperopt
+- Comparing and selecting the best hyperparameters
+
+## Prerequisites
+
+```bash
+pip install mlflow scikit-learn hyperopt
+```
+
+## Method 1: GridSearchCV with Autologging
+
+MLflow's autologging feature automatically tracks parameters, metrics, and models from scikit-learn's GridSearchCV.
+
+<Steps>
+
+<Step title="Enable autologging">
+
+```python
+import mlflow
+from sklearn import datasets, svm
+from sklearn.model_selection import GridSearchCV
+import pandas as pd
+
+# Enable autologging for scikit-learn
+mlflow.sklearn.autolog()
+```
+
+</Step>
+
+<Step title="Define your search space">
+
+```python
+# Load dataset
+iris = datasets.load_iris()
+
+# Define hyperparameter grid
+parameters = {
+    "kernel": ("linear", "rbf"),
+    "C": [1, 10]
+}
+
+# Create model and grid search
+svc = svm.SVC()
+clf = GridSearchCV(svc, parameters)
+```
+
+</Step>
+
+<Step title="Run the search">
+
+```python
+# Fit the grid search - MLflow automatically logs everything
+clf.fit(iris.data, iris.target)
+
+# Get the run ID
+run_id = mlflow.last_active_run().info.run_id
+print(f"Parent run ID: {run_id}")
+```
+
+</Step>
+
+<Step title="Analyze results">
+
+```python
+# View all child runs
+filter_child_runs = f"tags.mlflow.parentRunId = '{run_id}'"
+runs = mlflow.search_runs(filter_string=filter_child_runs)
+
+# Display parameter combinations and their scores
+param_cols = [f"params.{p}" for p in parameters.keys()]
+metric_cols = ["metrics.mean_test_score"]
+
+pd.set_option("display.max_columns", None)
+print(runs[["run_id", *param_cols, *metric_cols]])
+
+# Best parameters are available from GridSearchCV
+print(f"\nBest parameters: {clf.best_params_}")
+print(f"Best score: {clf.best_score_}")
+```
+
+</Step>
+
+</Steps>
+
+## Understanding the Run Structure
+
+When you use autologging with GridSearchCV, MLflow creates:
+
+- **One parent run**: Contains the best model and summary metrics
+- **Multiple child runs**: One for each hyperparameter combination tested
+
+This hierarchical structure makes it easy to:
+- Compare all parameter combinations
+- Track the entire tuning process
+- Reproduce the best model
+
+## Method 2: Manual Hyperparameter Tuning
+
+For more control, you can manually track each experiment:
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+
+# Load and split data
+iris = load_iris()
+X_train, X_test, y_train, y_test = train_test_split(
+    iris.data, iris.target, test_size=0.2, random_state=42
+)
+
+# Define hyperparameter combinations to try
+max_depth_values = [5, 10, 15, 20]
+n_estimators_values = [50, 100, 200]
+
+# Create a parent run for the tuning experiment
+with mlflow.start_run(run_name="random_forest_tuning") as parent_run:
+    best_score = 0
+    best_params = {}
+    
+    for max_depth in max_depth_values:
+        for n_estimators in n_estimators_values:
+            # Create a nested run for each combination
+            with mlflow.start_run(nested=True) as child_run:
+                # Train model
+                clf = RandomForestClassifier(
+                    max_depth=max_depth,
+                    n_estimators=n_estimators,
+                    random_state=42
+                )
+                clf.fit(X_train, y_train)
+                
+                # Evaluate
+                predictions = clf.predict(X_test)
+                accuracy = accuracy_score(y_test, predictions)
+                
+                # Log parameters and metrics
+                mlflow.log_param("max_depth", max_depth)
+                mlflow.log_param("n_estimators", n_estimators)
+                mlflow.log_metric("accuracy", accuracy)
+                
+                # Track best model
+                if accuracy > best_score:
+                    best_score = accuracy
+                    best_params = {
+                        "max_depth": max_depth,
+                        "n_estimators": n_estimators
+                    }
+                
+                print(f"max_depth={max_depth}, n_estimators={n_estimators}, accuracy={accuracy:.4f}")
+    
+    # Log best parameters to parent run
+    mlflow.log_params(best_params)
+    mlflow.log_metric("best_accuracy", best_score)
+    print(f"\nBest parameters: {best_params}")
+    print(f"Best accuracy: {best_score:.4f}")
+```
+
+## Method 3: Hyperopt Integration
+
+For Bayesian optimization, use Hyperopt with MLflow:
+
+```python
+import numpy as np
+from hyperopt import fmin, hp, tpe, STATUS_OK, Trials
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import cross_val_score
+
+# Load data
+iris = load_iris()
+X, y = iris.data, iris.target
+
+def objective(params):
+    """Objective function for Hyperopt to minimize."""
+    with mlflow.start_run(nested=True):
+        # Convert hyperopt parameters to integers where needed
+        params['max_depth'] = int(params['max_depth'])
+        params['n_estimators'] = int(params['n_estimators'])
+        params['min_samples_split'] = int(params['min_samples_split'])
+        
+        # Log parameters
+        mlflow.log_params(params)
+        
+        # Train and evaluate model
+        clf = RandomForestClassifier(**params, random_state=42)
+        score = cross_val_score(clf, X, y, cv=5).mean()
+        
+        # Log metric
+        mlflow.log_metric("cv_score", score)
+        
+        # Hyperopt minimizes, so return negative score
+        return {'loss': -score, 'status': STATUS_OK}
+
+# Define search space
+space = {
+    'max_depth': hp.quniform('max_depth', 5, 30, 1),
+    'n_estimators': hp.quniform('n_estimators', 50, 300, 10),
+    'min_samples_split': hp.quniform('min_samples_split', 2, 10, 1),
+    'min_samples_leaf': hp.quniform('min_samples_leaf', 1, 5, 1),
+}
+
+# Run optimization
+with mlflow.start_run(run_name="hyperopt_tuning"):
+    trials = Trials()
+    best = fmin(
+        fn=objective,
+        space=space,
+        algo=tpe.suggest,  # Tree-structured Parzen Estimator
+        max_evals=50,
+        trials=trials
+    )
+    
+    # Log best parameters
+    mlflow.log_params(best)
+    mlflow.log_metric("best_cv_score", -min([trial['result']['loss'] for trial in trials.trials]))
+    
+    print(f"Best parameters: {best}")
+```
+
+## Comparing Results in MLflow UI
+
+After running your hyperparameter search:
+
+1. Start the MLflow UI:
+   ```bash
+   mlflow ui
+   ```
+
+2. Navigate to your experiment
+
+3. Select multiple runs to compare:
+   - Click the checkbox next to each run
+   - Click "Compare" button
+   - View parallel coordinates plot
+   - See parameter importance
+
+4. Sort by metrics to find best runs:
+   - Click column headers to sort
+   - Filter runs by parameter values
+   - Download results as CSV
+
+## Best Practices
+
+- **Use nested runs** to group related experiments
+- **Enable autologging** when using scikit-learn to reduce boilerplate
+- **Log both training and validation metrics** to detect overfitting
+- **Use tags** to mark important runs (e.g., `mlflow.set_tag("best_model", "true")`)
+- **Document your search strategy** in run descriptions
+
+## Advanced: Random Search
+
+For large search spaces, random search can be more efficient:
+
+```python
+import numpy as np
+import mlflow
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.datasets import load_iris
+from sklearn.model_selection import cross_val_score
+
+iris = load_iris()
+X, y = iris.data, iris.target
+
+with mlflow.start_run(run_name="random_search"):
+    n_iterations = 30
+    
+    for i in range(n_iterations):
+        with mlflow.start_run(nested=True):
+            # Sample random hyperparameters
+            params = {
+                'learning_rate': np.random.uniform(0.01, 0.3),
+                'n_estimators': np.random.randint(50, 200),
+                'max_depth': np.random.randint(3, 10),
+                'subsample': np.random.uniform(0.6, 1.0)
+            }
+            
+            mlflow.log_params(params)
+            
+            # Train and evaluate
+            clf = GradientBoostingClassifier(**params, random_state=42)
+            score = cross_val_score(clf, X, y, cv=5).mean()
+            
+            mlflow.log_metric("cv_score", score)
+            print(f"Iteration {i+1}/{n_iterations}: score={score:.4f}")
+```
+
+## Next Steps
+
+- Learn to [compare multiple models](/guides/model-comparison)
+- Deploy your best model to [production](/guides/production-deployment)
+- Explore [MLflow Projects](https://mlflow.org/docs/latest/projects.html) for reproducible runs

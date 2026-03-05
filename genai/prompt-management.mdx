@@ -1,0 +1,709 @@
+---
+title: Prompt Management
+description: Complete guide to MLflow Prompt Registry for versioning, optimizing, and managing LLM prompts
+---
+
+# Prompt Management
+
+MLflow Prompt Registry provides version control and lifecycle management for LLM prompts. Store, version, and optimize prompt templates with the same rigor as ML models.
+
+## Why Prompt Management?
+
+Prompt management helps you:
+
+- **Version control**: Track prompt changes like code with Git-style versioning
+- **Collaboration**: Share and reuse prompts across teams
+- **Deployment**: Promote prompts through stages (dev → staging → production)
+- **Optimization**: Automatically improve prompts based on evaluation data
+- **Auditing**: Maintain history of prompt changes and performance
+
+## Quick Start
+
+### Register a Prompt
+
+```python
+import mlflow
+
+# Register a simple text prompt
+mlflow.genai.register_prompt(
+    name="greeting_prompt",
+    template="Respond to the user's message as a {{style}} AI assistant."
+)
+
+# Register a chat prompt with multiple messages
+mlflow.genai.register_prompt(
+    name="customer_support",
+    template=[
+        {"role": "system", "content": "You are a {{company}} support agent."},
+        {"role": "user", "content": "{{user_query}}"}
+    ]
+)
+```
+
+### Load and Use a Prompt
+
+```python
+import mlflow
+import openai
+
+# Load the latest version
+prompt = mlflow.genai.load_prompt("greeting_prompt")
+
+# Format with variables
+formatted = prompt.format(style="friendly")
+
+# Use with OpenAI
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "system", "content": formatted}]
+)
+```
+
+## Prompt Templates
+
+### Text Templates
+
+Simple string templates with variable placeholders:
+
+```python
+mlflow.genai.register_prompt(
+    name="summarizer",
+    template="""
+    Summarize the following text in {{max_words}} words or less.
+    Focus on {{focus_area}}.
+    
+    Text: {{text}}
+    
+    Summary:
+    """
+)
+
+# Use the prompt
+prompt = mlflow.genai.load_prompt("summarizer")
+formatted = prompt.format(
+    max_words=50,
+    focus_area="key insights",
+    text="Long document..."
+)
+```
+
+### Chat Templates
+
+Structured message lists for chat models:
+
+```python
+mlflow.genai.register_prompt(
+    name="rag_assistant",
+    template=[
+        {
+            "role": "system",
+            "content": "You are an AI assistant. Use the provided context to answer questions accurately."
+        },
+        {
+            "role": "user",
+            "content": "Context: {{context}}\n\nQuestion: {{question}}"
+        }
+    ]
+)
+
+# Use with chat API
+prompt = mlflow.genai.load_prompt("rag_assistant")
+messages = prompt.format(
+    context="MLflow is an open-source platform...",
+    question="What is MLflow?"
+)
+
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=messages
+)
+```
+
+### Variable Syntax
+
+MLflow uses double curly braces for variables:
+
+```python
+# MLflow syntax (recommended)
+template = "Hello {{name}}, your {{item}} is ready."
+
+# Format
+prompt.format(name="Alice", item="order")
+# Output: "Hello Alice, your order is ready."
+
+# Convert to LangChain format (single braces) if needed
+langchain_template = prompt.to_single_brace_format()
+# Output: "Hello {name}, your {item} is ready."
+```
+
+## Version Management
+
+### Creating Versions
+
+```python
+import mlflow
+
+# First version
+v1 = mlflow.genai.register_prompt(
+    name="qa_prompt",
+    template="Answer the question: {{question}}",
+    commit_message="Initial version"
+)
+
+print(f"Created version {v1.version}")  # Version 1
+
+# Update with new version
+v2 = mlflow.genai.register_prompt(
+    name="qa_prompt",
+    template="Answer the following question concisely: {{question}}",
+    commit_message="Added conciseness instruction",
+    tags={"author": "alice", "reviewed": "true"}
+)
+
+print(f"Created version {v2.version}")  # Version 2
+```
+
+### Loading Specific Versions
+
+```python
+# Load latest version
+latest = mlflow.genai.load_prompt("qa_prompt")
+
+# Load specific version
+v1 = mlflow.genai.load_prompt("qa_prompt", version=1)
+
+# Load by version number in URI
+v1_uri = mlflow.genai.load_prompt("prompts:/qa_prompt/1")
+```
+
+### Using Aliases
+
+Tag versions with aliases for easy reference:
+
+```python
+import mlflow
+
+# Set alias on a version
+mlflow.genai.set_prompt_alias(
+    name="qa_prompt",
+    version=2,
+    alias="production"
+)
+
+# Also set staging alias
+mlflow.genai.set_prompt_alias(
+    name="qa_prompt",
+    version=3,
+    alias="staging"
+)
+
+# Load by alias
+prod_prompt = mlflow.genai.load_prompt("prompts:/qa_prompt@production")
+staging_prompt = mlflow.genai.load_prompt("prompts:/qa_prompt@staging")
+
+# Update alias to new version
+mlflow.genai.set_prompt_alias(
+    name="qa_prompt",
+    version=3,
+    alias="production"  # Promote staging to production
+)
+
+# Delete alias
+mlflow.genai.delete_prompt_alias(name="qa_prompt", alias="staging")
+```
+
+### Searching Prompts
+
+```python
+import mlflow
+
+# Search all prompts
+prompts = mlflow.genai.search_prompts()
+
+for prompt in prompts:
+    print(f"Name: {prompt.name}")
+    print(f"Latest version: {prompt.latest_version}")
+    print(f"Tags: {prompt.tags}")
+
+# Filter by name
+qa_prompts = mlflow.genai.search_prompts(
+    filter_string="name LIKE '%qa%'"
+)
+
+# Limit results
+top_5 = mlflow.genai.search_prompts(max_results=5)
+```
+
+## Model Configuration
+
+Attach model-specific settings to prompts:
+
+```python
+from mlflow.entities.model_registry import PromptModelConfig
+
+# Register with model config
+mlflow.genai.register_prompt(
+    name="smart_assistant",
+    template="{{instruction}}\n\nQuery: {{query}}",
+    model_config=PromptModelConfig(
+        model_name="gpt-4o",
+        temperature=0.7,
+        max_tokens=1000,
+        top_p=0.95
+    )
+)
+
+# Or use dictionary
+mlflow.genai.register_prompt(
+    name="smart_assistant",
+    template="{{instruction}}\n\nQuery: {{query}}",
+    model_config={
+        "model_name": "gpt-4o",
+        "temperature": 0.7,
+        "max_tokens": 1000
+    }
+)
+
+# Load and use config
+prompt = mlflow.genai.load_prompt("smart_assistant")
+
+import openai
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model=prompt.model_config.model_name,
+    messages=[{"role": "user", "content": prompt.format(query="...")}],
+    temperature=prompt.model_config.temperature,
+    max_tokens=prompt.model_config.max_tokens
+)
+```
+
+### Update Model Config
+
+```python
+import mlflow
+from mlflow.entities.model_registry import PromptModelConfig
+
+# Update config for existing version
+mlflow.genai.set_prompt_model_config(
+    name="smart_assistant",
+    version=1,
+    model_config=PromptModelConfig(
+        model_name="gpt-4o-turbo",
+        temperature=0.5
+    )
+)
+
+# Delete config
+mlflow.genai.delete_prompt_model_config(
+    name="smart_assistant",
+    version=1
+)
+```
+
+## Response Format
+
+Define structured output schemas:
+
+```python
+from pydantic import BaseModel
+import mlflow
+
+# Define response schema with Pydantic
+class UserInfo(BaseModel):
+    name: str
+    age: int
+    occupation: str
+
+# Register with response format
+mlflow.genai.register_prompt(
+    name="extract_user_info",
+    template="Extract user information from: {{text}}",
+    response_format=UserInfo
+)
+
+# Or use dictionary schema
+mlflow.genai.register_prompt(
+    name="extract_user_info",
+    template="Extract user information from: {{text}}",
+    response_format={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
+            "occupation": {"type": "string"}
+        },
+        "required": ["name", "age"]
+    }
+)
+
+# Use with structured output
+prompt = mlflow.genai.load_prompt("extract_user_info")
+
+import openai
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": prompt.format(text="...")}],
+    response_format={"type": "json_object"}
+)
+```
+
+## Prompt Optimization
+
+Automatically improve prompts based on evaluation data:
+
+```python
+import mlflow
+import openai
+import pandas as pd
+from mlflow.genai.optimize.optimizers import GepaPromptOptimizer
+from mlflow.genai.scorers import Correctness
+
+# Training data
+train_data = pd.DataFrame([
+    {
+        "inputs": {"question": "What is MLflow?"},
+        "expectations": "MLflow is an open-source platform"
+    },
+    {
+        "inputs": {"question": "What is Spark?"},
+        "expectations": "Spark is a distributed computing engine"
+    }
+])
+
+# Define prediction function
+def predict_fn(question: str) -> str:
+    prompt = mlflow.genai.load_prompt("prompts:/qa_prompt/1")
+    formatted = prompt.format(question=question)
+    
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": formatted}]
+    )
+    return response.choices[0].message.content
+
+# Optimize prompt
+result = mlflow.genai.optimize_prompts(
+    predict_fn=predict_fn,
+    train_data=train_data,
+    prompt_uris=["prompts:/qa_prompt/1"],
+    optimizer=GepaPromptOptimizer(
+        reflection_model="openai:/gpt-4o",
+        max_metric_calls=50
+    ),
+    scorers=[Correctness(model="openai:/gpt-4o")]
+)
+
+# Get optimized prompt
+optimized_prompt = result.optimized_prompts[0]
+print(f"Original: {result.original_prompts[0].template}")
+print(f"Optimized: {optimized_prompt.template}")
+print(f"Score improvement: {result.score_improvement}")
+
+# Register optimized version
+mlflow.genai.register_prompt(
+    name="qa_prompt",
+    template=optimized_prompt.template,
+    commit_message="Optimized with GEPA"
+)
+```
+
+### MetaPrompt Optimizer
+
+Alternative optimization strategy:
+
+```python
+from mlflow.genai.optimize.optimizers import MetaPromptOptimizer
+
+result = mlflow.genai.optimize_prompts(
+    predict_fn=predict_fn,
+    train_data=train_data,
+    prompt_uris=["prompts:/qa_prompt/1"],
+    optimizer=MetaPromptOptimizer(
+        model="openai:/gpt-4o",
+        num_candidates=10
+    ),
+    scorers=[Correctness(model="openai:/gpt-4o")]
+)
+```
+
+## Tagging and Metadata
+
+### Prompt-level Tags
+
+```python
+import mlflow
+
+# Set tags on prompt
+mlflow.genai.set_prompt_tag(
+    name="qa_prompt",
+    key="team",
+    value="ml-platform"
+)
+
+mlflow.genai.set_prompt_tag(
+    name="qa_prompt",
+    key="use_case",
+    value="customer_support"
+)
+
+# Get all tags
+tags = mlflow.genai.get_prompt_tags("qa_prompt")
+print(tags)
+
+# Delete tag
+mlflow.genai.delete_prompt_tag(name="qa_prompt", key="team")
+```
+
+### Version-level Tags
+
+```python
+# Tag specific version
+mlflow.genai.set_prompt_version_tag(
+    name="qa_prompt",
+    version=2,
+    key="reviewed_by",
+    value="alice@example.com"
+)
+
+mlflow.genai.set_prompt_version_tag(
+    name="qa_prompt",
+    version=2,
+    key="approval_date",
+    value="2024-01-15"
+)
+
+# Delete version tag
+mlflow.genai.delete_prompt_version_tag(
+    name="qa_prompt",
+    version=2,
+    key="reviewed_by"
+)
+```
+
+## Integration Patterns
+
+### With MLflow Runs
+
+```python
+import mlflow
+
+mlflow.set_experiment("prompt-experiments")
+
+with mlflow.start_run():
+    # Register prompt
+    prompt_version = mlflow.genai.register_prompt(
+        name="experiment_prompt",
+        template="Analyze {{data}} and provide {{format}} output."
+    )
+    
+    # Log prompt info
+    mlflow.log_param("prompt_name", "experiment_prompt")
+    mlflow.log_param("prompt_version", prompt_version.version)
+    
+    # Use prompt in experiment
+    prompt = mlflow.genai.load_prompt("experiment_prompt")
+    # ... run experiments ...
+```
+
+### With Model Deployment
+
+```python
+import mlflow
+import mlflow.pyfunc
+import openai
+
+class PromptModel(mlflow.pyfunc.PythonModel):
+    def __init__(self, prompt_name: str, prompt_version: int):
+        self.prompt_name = prompt_name
+        self.prompt_version = prompt_version
+        self.client = openai.OpenAI()
+    
+    def load_context(self, context):
+        # Load prompt when model loads
+        self.prompt = mlflow.genai.load_prompt(
+            self.prompt_name,
+            version=self.prompt_version
+        )
+    
+    def predict(self, context, model_input):
+        # Use prompt for predictions
+        formatted = self.prompt.format(**model_input[0])
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": formatted}]
+        )
+        return response.choices[0].message.content
+
+# Log and deploy model with prompt
+with mlflow.start_run():
+    model = PromptModel(
+        prompt_name="qa_prompt",
+        prompt_version=1
+    )
+    
+    mlflow.pyfunc.log_model(
+        "model",
+        python_model=model
+    )
+```
+
+### Caching
+
+Control prompt caching behavior:
+
+```python
+import mlflow
+
+# Cache for 5 minutes
+prompt = mlflow.genai.load_prompt(
+    "qa_prompt",
+    cache_ttl_seconds=300
+)
+
+# Bypass cache
+prompt = mlflow.genai.load_prompt(
+    "qa_prompt",
+    cache_ttl_seconds=0
+)
+
+# Use environment variables for default TTL
+import os
+
+# For alias-based prompts (default 60s)
+os.environ["MLFLOW_ALIAS_PROMPT_CACHE_TTL_SECONDS"] = "120"
+
+# For version-based prompts (default: no TTL)
+os.environ["MLFLOW_VERSION_PROMPT_CACHE_TTL_SECONDS"] = "3600"
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Semantic Versioning in Commit Messages">
+    Document changes clearly:
+    ```python
+    mlflow.genai.register_prompt(
+        name="qa_prompt",
+        template="...",
+        commit_message="feat: Add context awareness to responses"
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Tag Production Versions">
+    Always use aliases for deployment:
+    ```python
+    mlflow.genai.set_prompt_alias(
+        name="qa_prompt",
+        version=5,
+        alias="production"
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Include Model Config">
+    Store model settings with prompts:
+    ```python
+    mlflow.genai.register_prompt(
+        name="qa_prompt",
+        template="...",
+        model_config={
+            "model_name": "gpt-4o",
+            "temperature": 0.7
+        }
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Test Before Promoting">
+    Evaluate prompts before production deployment:
+    ```python
+    # Test in staging
+    result = mlflow.genai.evaluate(
+        data=test_data,
+        predict_fn=lambda q: use_prompt("prompts:/qa@staging", q),
+        scorers=[Correctness()]
+    )
+    
+    # If good, promote to production
+    if result.metrics["correctness/pass_rate"] > 0.9:
+        mlflow.genai.set_prompt_alias(
+            name="qa_prompt",
+            version=staging_version,
+            alias="production"
+        )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Examples
+
+### RAG System with Versioned Prompts
+
+```python
+import mlflow
+import openai
+from typing import List
+
+# Register RAG prompt
+mlflow.genai.register_prompt(
+    name="rag_qa",
+    template=[
+        {
+            "role": "system",
+            "content": "Use the provided context to answer the question accurately. If the context doesn't contain the answer, say so."
+        },
+        {
+            "role": "user",
+            "content": "Context: {{context}}\n\nQuestion: {{question}}"
+        }
+    ],
+    model_config={
+        "model_name": "gpt-4o",
+        "temperature": 0.3
+    }
+)
+
+mlflow.genai.set_prompt_alias(name="rag_qa", version=1, alias="production")
+
+def rag_answer(question: str, context: List[str]) -> str:
+    """Answer question using RAG with versioned prompt"""
+    # Load production prompt
+    prompt = mlflow.genai.load_prompt("prompts:/rag_qa@production")
+    
+    # Format messages
+    messages = prompt.format(
+        context="\n".join(context),
+        question=question
+    )
+    
+    # Use model config from prompt
+    client = openai.OpenAI()
+    response = client.chat.completions.create(
+        model=prompt.model_config.model_name,
+        messages=messages,
+        temperature=prompt.model_config.temperature
+    )
+    
+    return response.choices[0].message.content
+
+# Use the system
+context = ["MLflow is an open-source platform..."]
+answer = rag_answer("What is MLflow?", context)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation" icon="chart-bar" href="/genai/evaluation">
+    Evaluate prompt effectiveness
+  </Card>
+  <Card title="Tracing" icon="route" href="/genai/tracing">
+    Monitor prompt usage in production
+  </Card>
+</CardGroup>

@@ -1,0 +1,577 @@
+---
+title: Model Versioning Best Practices
+description: Strategies for effective model versioning, registration, and lifecycle management in MLflow Model Registry
+---
+
+## Overview
+
+Model versioning is critical for tracking model evolution, ensuring reproducibility, and managing deployments. MLflow Model Registry provides comprehensive tools for versioning, aliasing, and managing model lifecycles.
+
+## Model Registration Strategies
+
+### Register Models with Clear Names
+
+Use descriptive, consistent naming for registered models:
+
+```python
+import mlflow
+import mlflow.sklearn
+
+with mlflow.start_run():
+    # Train and log model
+    mlflow.sklearn.log_model(model, "model")
+    run_id = mlflow.active_run().info.run_id
+
+# Register with descriptive name
+model_uri = f"runs:/{run_id}/model"
+mlflow.register_model(
+    model_uri=model_uri,
+    name="customer_churn_predictor"
+)
+```
+
+<Accordion title="Model naming conventions">
+Good model names should:
+- Describe the business use case (e.g., "fraud_detector", "recommendation_engine")
+- Avoid version numbers in the name (use versions for that)
+- Use underscores or hyphens for readability
+- Be unique within your organization
+- Avoid technical jargon that business stakeholders won't understand
+- Use singular form (e.g., "predictor" not "predictors")
+</Accordion>
+
+### Register Directly from Log Model
+
+Use the `registered_model_name` parameter to log and register in one step:
+
+```python
+import mlflow
+import mlflow.sklearn
+from mlflow.models import infer_signature
+
+with mlflow.start_run():
+    # Infer model signature
+    signature = infer_signature(X_train, model.predict(X_train))
+    
+    # Log and register in one step
+    mlflow.sklearn.log_model(
+        model,
+        artifact_path="model",
+        registered_model_name="sentiment_classifier",
+        signature=signature
+    )
+```
+
+### Add Metadata During Registration
+
+Include tags to track important metadata:
+
+```python
+import mlflow
+
+model_version = mlflow.register_model(
+    model_uri=f"runs:/{run_id}/model",
+    name="price_optimizer",
+    tags={
+        "framework": "xgboost",
+        "training_data_version": "2024-03-v1",
+        "data_size": "1M_samples",
+        "training_duration": "2h_15m",
+        "validation_accuracy": "0.947"
+    }
+)
+
+print(f"Registered model version: {model_version.version}")
+```
+
+## Version Management
+
+### Use Semantic Meaning in Version Tags
+
+While MLflow auto-increments versions, use tags to add semantic meaning:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Register new version
+model_version = mlflow.register_model(
+    model_uri=f"runs:/{run_id}/model",
+    name="recommendation_model"
+)
+
+# Add semantic version tag
+client.set_model_version_tag(
+    name="recommendation_model",
+    version=model_version.version,
+    key="semantic_version",
+    value="2.1.0"  # major.minor.patch
+)
+
+# Add change description
+client.set_model_version_tag(
+    name="recommendation_model",
+    version=model_version.version,
+    key="changes",
+    value="Added collaborative filtering + improved cold start handling"
+)
+```
+
+<Accordion title="Semantic versioning scheme">
+Consider adopting semantic versioning tags:
+- **Major version**: Breaking changes (new features, different inputs/outputs)
+- **Minor version**: Backwards-compatible improvements (better accuracy, same interface)
+- **Patch version**: Bug fixes, retraining with same code and architecture
+
+Example: `3.2.1`
+- Major: 3 (third generation architecture)
+- Minor: 2 (second accuracy improvement)
+- Patch: 1 (first bug fix)
+</Accordion>
+
+### Track Model Lineage
+
+Ensure version lineage is traceable back to training runs:
+
+```python
+import mlflow
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# When registering, the run_id is automatically tracked
+model_version = mlflow.register_model(
+    model_uri=f"runs:/{run_id}/model",
+    name="fraud_detector"
+)
+
+# Retrieve lineage information
+version_details = client.get_model_version(
+    name="fraud_detector",
+    version=model_version.version
+)
+
+print(f"Source run: {version_details.run_id}")
+print(f"Source experiment: {version_details.run_link}")
+
+# Add additional lineage tags
+client.set_model_version_tag(
+    name="fraud_detector",
+    version=model_version.version,
+    key="parent_model_version",
+    value="5"  # If this is a fine-tuned version
+)
+```
+
+## Model Aliases and Stages
+
+### Use Aliases for Deployment Stages
+
+Aliases provide flexible pointers to model versions:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set aliases for different stages
+client.set_registered_model_alias(
+    name="text_classifier",
+    alias="champion",
+    version="5"
+)
+
+client.set_registered_model_alias(
+    name="text_classifier",
+    alias="challenger",
+    version="7"
+)
+
+client.set_registered_model_alias(
+    name="text_classifier",
+    alias="staging",
+    version="8"
+)
+```
+
+### Load Models by Alias
+
+Use aliases in production code for easy version switching:
+
+```python
+import mlflow.pyfunc
+
+# Load the current production model
+champion_model = mlflow.pyfunc.load_model(
+    "models:/text_classifier@champion"
+)
+
+# Load challenger for A/B testing
+challenger_model = mlflow.pyfunc.load_model(
+    "models:/text_classifier@challenger"
+)
+
+# Make predictions
+prediction = champion_model.predict(data)
+```
+
+<Accordion title="Recommended alias strategy">
+Common alias patterns:
+- **champion**: Current production model (best performer)
+- **challenger**: Candidate for promotion (A/B testing)
+- **staging**: Being validated before production
+- **shadow**: Running in shadow mode (logging predictions, not serving)
+- **rollback**: Previous production version for quick rollback
+- **latest**: Most recently trained version
+</Accordion>
+
+### Promote Models Through Stages
+
+Implement a promotion workflow:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+def promote_model(model_name, version):
+    """Promote a model version through deployment stages"""
+    
+    # First, move to staging
+    client.set_registered_model_alias(
+        name=model_name,
+        alias="staging",
+        version=version
+    )
+    print(f"Version {version} promoted to staging")
+    
+    # After validation, promote to challenger
+    client.set_registered_model_alias(
+        name=model_name,
+        alias="challenger",
+        version=version
+    )
+    print(f"Version {version} promoted to challenger")
+    
+    # Get current champion for rollback
+    try:
+        champion_alias = client.get_model_version_by_alias(
+            name=model_name,
+            alias="champion"
+        )
+        # Save as rollback
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="rollback",
+            version=champion_alias.version
+        )
+    except:
+        pass
+    
+    # After A/B testing, promote to champion
+    client.set_registered_model_alias(
+        name=model_name,
+        alias="champion",
+        version=version
+    )
+    print(f"Version {version} promoted to champion")
+
+promote_model("sentiment_analyzer", "12")
+```
+
+## Version Comparison and Selection
+
+### Compare Model Versions
+
+Compare metrics across versions to select the best:
+
+```python
+import mlflow
+import pandas as pd
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+def compare_model_versions(model_name):
+    """Compare all versions of a registered model"""
+    versions = client.search_model_versions(f"name='{model_name}'")
+    
+    comparison_data = []
+    for version in versions:
+        run = client.get_run(version.run_id)
+        comparison_data.append({
+            "version": version.version,
+            "accuracy": run.data.metrics.get("accuracy"),
+            "f1_score": run.data.metrics.get("f1_score"),
+            "training_time": run.data.metrics.get("training_time"),
+            "created_at": version.creation_timestamp,
+            "status": version.status
+        })
+    
+    df = pd.DataFrame(comparison_data)
+    return df.sort_values("version", ascending=False)
+
+# Compare versions
+comparison = compare_model_versions("fraud_detector")
+print(comparison)
+```
+
+### Automated Version Selection
+
+Implement logic to automatically select the best version:
+
+```python
+from mlflow.tracking import MlflowClient
+
+def select_best_version(model_name, metric="accuracy", threshold=0.95):
+    """Select best model version based on metric"""
+    client = MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    
+    best_version = None
+    best_metric_value = 0
+    
+    for version in versions:
+        if version.status != "READY":
+            continue
+            
+        run = client.get_run(version.run_id)
+        metric_value = run.data.metrics.get(metric, 0)
+        
+        if metric_value > best_metric_value and metric_value >= threshold:
+            best_metric_value = metric_value
+            best_version = version.version
+    
+    if best_version:
+        # Promote to champion
+        client.set_registered_model_alias(
+            name=model_name,
+            alias="champion",
+            version=best_version
+        )
+        print(f"Version {best_version} selected as champion ({metric}={best_metric_value})")
+    
+    return best_version
+
+select_best_version("price_predictor", metric="rmse", threshold=0.95)
+```
+
+## Model Documentation
+
+### Add Model Descriptions
+
+Document models at both the registered model and version levels:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Update registered model description
+client.update_registered_model(
+    name="product_recommender",
+    description="""
+    Content-based and collaborative filtering recommendation system.
+    
+    Features:
+    - User interaction history (clicks, purchases, ratings)
+    - Product metadata (category, price, brand)
+    - User demographics (age group, location)
+    
+    Architecture: Two-tower neural network with embeddings
+    Training frequency: Weekly
+    Owner: ml-recommendations@company.com
+    """
+)
+
+# Update model version description
+client.update_model_version(
+    name="product_recommender",
+    version="8",
+    description="""
+    Improved cold-start handling using content-based features.
+    
+    Changes in v8:
+    - Added product metadata embeddings
+    - Increased user embedding dimension to 128
+    - Added attention mechanism for recent interactions
+    
+    Metrics:
+    - Precision@10: 0.342 (+0.023 vs v7)
+    - Recall@10: 0.198 (+0.015 vs v7)
+    - NDCG: 0.412 (+0.018 vs v7)
+    """
+)
+```
+
+### Use Model Cards
+
+Create comprehensive model cards as artifacts:
+
+```python
+import mlflow
+import json
+
+model_card = {
+    "model_details": {
+        "name": "Credit Risk Classifier",
+        "version": "3.2.0",
+        "type": "Gradient Boosting Classifier",
+        "framework": "XGBoost 2.0.3"
+    },
+    "intended_use": {
+        "primary_uses": "Predict credit default risk for loan applications",
+        "out_of_scope": "Not for insurance risk or investment decisions"
+    },
+    "training_data": {
+        "source": "Internal credit bureau + application data",
+        "size": "500,000 samples",
+        "date_range": "2022-01 to 2024-03",
+        "features": 47
+    },
+    "performance": {
+        "accuracy": 0.912,
+        "precision": 0.889,
+        "recall": 0.854,
+        "auc_roc": 0.943
+    },
+    "ethical_considerations": {
+        "fairness_constraints": "Demographic parity within 5% across groups",
+        "bias_testing": "Tested for age, gender, and geographic bias"
+    }
+}
+
+with mlflow.start_run():
+    mlflow.log_dict(model_card, "model_card.json")
+    mlflow.sklearn.log_model(model, "model", registered_model_name="credit_risk_classifier")
+```
+
+<Accordion title="Model card best practices">
+Include these sections in model cards:
+- **Model details**: Architecture, framework, version
+- **Intended use**: Primary use cases and limitations
+- **Training data**: Sources, size, date ranges, features
+- **Performance metrics**: Test set results, comparison to baseline
+- **Ethical considerations**: Fairness, bias testing, privacy
+- **Caveats and recommendations**: Known limitations, monitoring needs
+- **Maintenance**: Update frequency, owner contact
+</Accordion>
+
+## Version Cleanup and Archival
+
+### Archive Old Versions
+
+Delete or archive versions that are no longer needed:
+
+```python
+from mlflow.tracking import MlflowClient
+import datetime
+
+client = MlflowClient()
+
+def archive_old_versions(model_name, keep_recent=10, keep_days=90):
+    """Archive old model versions"""
+    versions = client.search_model_versions(f"name='{model_name}'")
+    
+    # Sort by version number
+    versions = sorted(versions, key=lambda v: int(v.version), reverse=True)
+    
+    # Keep recent versions and those with aliases
+    for i, version in enumerate(versions):
+        # Skip if in top N recent versions
+        if i < keep_recent:
+            continue
+        
+        # Skip if has an alias
+        if version.aliases:
+            continue
+        
+        # Check age
+        created_date = datetime.datetime.fromtimestamp(version.creation_timestamp / 1000)
+        age_days = (datetime.datetime.now() - created_date).days
+        
+        if age_days > keep_days:
+            # Delete version
+            client.delete_model_version(
+                name=model_name,
+                version=version.version
+            )
+            print(f"Deleted version {version.version} (age: {age_days} days)")
+
+archive_old_versions("recommendation_model", keep_recent=10, keep_days=90)
+```
+
+## Advanced Versioning Patterns
+
+### Multi-Model Versioning
+
+For ensemble or multi-stage systems, version all components together:
+
+```python
+import mlflow
+
+with mlflow.start_run(run_name="ensemble_training") as run:
+    # Train component models
+    mlflow.sklearn.log_model(model1, "classifier_1")
+    mlflow.sklearn.log_model(model2, "classifier_2")
+    mlflow.sklearn.log_model(ensemble, "ensemble")
+    
+    # Register ensemble with tags referencing components
+    ensemble_version = mlflow.register_model(
+        model_uri=f"runs:/{run.info.run_id}/ensemble",
+        name="ensemble_classifier",
+        tags={
+            "component_1": "classifier_1",
+            "component_2": "classifier_2",
+            "ensemble_method": "weighted_voting",
+            "weights": "0.6,0.4"
+        }
+    )
+```
+
+### Model Variant Tracking
+
+Track different model variants (e.g., quantized, pruned) as separate registered models:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log base model
+    mlflow.pytorch.log_model(base_model, "base_model")
+    run_id = mlflow.active_run().info.run_id
+
+# Register base model
+mlflow.register_model(
+    f"runs:/{run_id}/base_model",
+    "image_classifier_base"
+)
+
+# Register optimized variants
+mlflow.register_model(
+    f"runs:/{run_id}/base_model",
+    "image_classifier_quantized",
+    tags={"optimization": "int8_quantization", "size_reduction": "4x"}
+)
+
+mlflow.register_model(
+    f"runs:/{run_id}/base_model",
+    "image_classifier_pruned",
+    tags={"optimization": "structured_pruning", "sparsity": "50%"}
+)
+```
+
+## Summary
+
+Effective model versioning in MLflow requires:
+- Clear, consistent naming conventions
+- Comprehensive metadata and tags
+- Strategic use of aliases for deployment stages
+- Thorough documentation with model cards
+- Automated selection and promotion workflows
+- Regular cleanup and archival of old versions
+- Tracking of model lineage and relationships
+
+By following these best practices, you'll maintain a well-organized model registry that supports reliable deployments and regulatory compliance.

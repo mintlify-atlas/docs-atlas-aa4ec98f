@@ -1,0 +1,468 @@
+---
+title: Model Flavors
+description: Understand MLflow's built-in model flavors and how to use them
+---
+
+MLflow Models supports multiple "flavors" that define how a model can be interpreted and used. Each flavor is a different representation of the model, allowing the same model to work with various deployment tools and serving infrastructures.
+
+## Understanding Flavors
+
+A flavor is essentially a contract between the model and the tools that consume it. When you save a model using MLflow, it's typically saved with multiple flavors:
+
+1. **Native flavor** - Framework-specific format (e.g., sklearn, pytorch)
+2. **PyFunc flavor** - Generic Python function interface
+
+<Note>
+The `python_function` (pyfunc) flavor is MLflow's universal interface. Almost all built-in model flavors are automatically saved with pyfunc support, enabling consistent deployment regardless of the training framework.
+</Note>
+
+## The python_function Flavor
+
+The `python_function` flavor is the most important flavor because it provides a generic Python function interface that works across all MLflow models. Every PyFunc model implements a `predict()` method with a consistent signature.
+
+### PyFunc Interface
+
+From the source code (`mlflow/pyfunc/__init__.py`):
+
+```python
+predict(
+    model_input: Union[
+        pandas.DataFrame,
+        numpy.ndarray,
+        scipy.sparse.csc_matrix,
+        scipy.sparse.csr_matrix,
+        List[Any],
+        Dict[str, Any],
+        pyspark.sql.DataFrame
+    ]
+) -> Union[
+    numpy.ndarray,
+    pandas.Series,
+    pandas.DataFrame,
+    List,
+    Dict,
+    pyspark.sql.DataFrame
+]
+```
+
+### Supported Input Types
+
+<Tabs>
+  <Tab title="DataFrame">
+    ```python
+    import pandas as pd
+    
+    x_new = pd.DataFrame({
+        'feature_1': [1.0, 2.0, 3.0],
+        'feature_2': [4.0, 5.0, 6.0]
+    })
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+  
+  <Tab title="NumPy Array">
+    ```python
+    import numpy as np
+    
+    x_new = np.array([[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]])
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+  
+  <Tab title="Dictionary">
+    ```python
+    x_new = {
+        'feature_1': [1.0, 2.0, 3.0],
+        'feature_2': [4.0, 5.0, 6.0]
+    }
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+  
+  <Tab title="List">
+    ```python
+    x_new = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+  
+  <Tab title="Sparse Matrix">
+    ```python
+    from scipy.sparse import csr_matrix
+    
+    x_new = csr_matrix([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+  
+  <Tab title="Spark DataFrame">
+    ```python
+    from pyspark.sql import SparkSession
+    
+    spark = SparkSession.builder.getOrCreate()
+    data = [(1.0, 4.0), (2.0, 5.0), (3.0, 6.0)]
+    x_new = spark.createDataFrame(data, ['feature_1', 'feature_2'])
+    predictions = model.predict(x_new)
+    ```
+  </Tab>
+</Tabs>
+
+## Built-in Model Flavors
+
+### Scikit-learn
+
+The sklearn flavor supports scikit-learn models with both pickle and cloudpickle serialization.
+
+From `mlflow/sklearn/__init__.py`:
+
+```python
+import mlflow
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import load_iris
+
+# Load data and train model
+X, y = load_iris(return_X_y=True)
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X, y)
+
+# Log model
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        serialization_format="cloudpickle",  # or "pickle" or "skops"
+        signature=mlflow.models.infer_signature(X, model.predict(X))
+    )
+
+# Load model
+loaded_model = mlflow.sklearn.load_model("runs:/run_id/model")
+predictions = loaded_model.predict(X)
+```
+
+**Serialization Formats:**
+- `cloudpickle` (default) - Most flexible, works with custom objects
+- `pickle` - Standard Python pickle
+- `skops` - Secure serialization format for sklearn models
+
+### PyTorch
+
+The pytorch flavor supports PyTorch models and state dictionaries.
+
+From `mlflow/pytorch/__init__.py`:
+
+```python
+import torch
+import torch.nn as nn
+import mlflow.pytorch
+
+# Define model
+class NeuralNetwork(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 1)
+    
+    def forward(self, x):
+        return self.linear(x)
+
+model = NeuralNetwork()
+
+# Log model
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        pytorch_model=model,
+        artifact_path="model",
+        signature=signature,
+        code_paths=["model_code.py"],  # Include custom code
+        pip_requirements=["torch>=2.0.0"]
+    )
+
+# Load model
+loaded_model = mlflow.pytorch.load_model("runs:/run_id/model")
+loaded_model.eval()
+
+with torch.no_grad():
+    predictions = loaded_model(torch.randn(5, 10))
+```
+
+**Key Features:**
+- Supports both full models and state dictionaries
+- Custom pickle modules via `mlflow.pytorch.pickle_module`
+- Device management (CPU/GPU) via `MLFLOW_DEFAULT_PREDICTION_DEVICE`
+
+### TensorFlow
+
+The tensorflow flavor supports both TensorFlow and Keras models.
+
+```python
+import tensorflow as tf
+import mlflow.tensorflow
+
+# Create model
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(64, activation='relu', input_shape=(10,)),
+    tf.keras.layers.Dense(1)
+])
+
+model.compile(optimizer='adam', loss='mse')
+
+# Log model
+with mlflow.start_run():
+    mlflow.tensorflow.log_model(
+        model=model,
+        artifact_path="model",
+        signature=signature
+    )
+
+# Load model
+loaded_model = mlflow.tensorflow.load_model("runs:/run_id/model")
+predictions = loaded_model.predict(X_test)
+```
+
+### XGBoost
+
+Supports XGBoost models with native XGBoost format.
+
+```python
+import xgboost as xgb
+import mlflow.xgboost
+
+# Train model
+dtrain = xgb.DMatrix(X_train, label=y_train)
+params = {'max_depth': 3, 'eta': 0.1, 'objective': 'binary:logistic'}
+model = xgb.train(params, dtrain, num_boost_round=100)
+
+# Log model
+with mlflow.start_run():
+    mlflow.xgboost.log_model(
+        xgb_model=model,
+        artifact_path="model",
+        signature=signature
+    )
+
+# Load model
+loaded_model = mlflow.xgboost.load_model("runs:/run_id/model")
+dtest = xgb.DMatrix(X_test)
+predictions = loaded_model.predict(dtest)
+```
+
+### LightGBM
+
+Supports LightGBM models with native format.
+
+```python
+import lightgbm as lgb
+import mlflow.lightgbm
+
+# Train model
+train_data = lgb.Dataset(X_train, label=y_train)
+params = {'objective': 'binary', 'metric': 'auc'}
+model = lgb.train(params, train_data, num_boost_round=100)
+
+# Log model
+with mlflow.start_run():
+    mlflow.lightgbm.log_model(
+        lgb_model=model,
+        artifact_path="model",
+        signature=signature
+    )
+```
+
+### Transformers (Hugging Face)
+
+Supports Hugging Face transformers models and pipelines.
+
+```python
+from transformers import pipeline
+import mlflow.transformers
+
+# Create pipeline
+text_classifier = pipeline(
+    "text-classification",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+# Log model
+with mlflow.start_run():
+    mlflow.transformers.log_model(
+        transformers_model=text_classifier,
+        artifact_path="model",
+        signature=signature
+    )
+
+# Load and use
+loaded_model = mlflow.pyfunc.load_model("runs:/run_id/model")
+predictions = loaded_model.predict(["This is great!", "This is terrible."])
+```
+
+### LangChain
+
+Supports LangChain chains and agents.
+
+```python
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+import mlflow.langchain
+
+# Create chain
+template = """Question: {question}
+Answer:"""
+prompt = PromptTemplate(template=template, input_variables=["question"])
+chain = LLMChain(llm=llm, prompt=prompt)
+
+# Log model
+with mlflow.start_run():
+    mlflow.langchain.log_model(
+        lc_model=chain,
+        artifact_path="model",
+        signature=signature
+    )
+```
+
+### OpenAI
+
+Supports OpenAI models with automatic retry and error handling.
+
+```python
+import mlflow.openai
+import os
+
+os.environ["OPENAI_API_KEY"] = "your-api-key"
+
+# Log model
+with mlflow.start_run():
+    mlflow.openai.log_model(
+        model="gpt-4",
+        task="chat.completions",
+        artifact_path="model",
+        signature=signature
+    )
+```
+
+## Flavor-Specific Configurations
+
+### MLmodel File Structure
+
+When you save a model with multiple flavors, the `MLmodel` file contains configuration for each:
+
+```yaml
+flavors:
+  sklearn:
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.3.0
+    code: null
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.10.12
+```
+
+### Loader Modules
+
+Each flavor specifies a `loader_module` that knows how to load the model. From `mlflow/models/model.py`, the loader module must define:
+
+```python
+def _load_pyfunc(path: str) -> pyfunc_model:
+    """
+    Load PyFunc implementation from path.
+    
+    Args:
+        path: Local filesystem path to the model directory
+        
+    Returns:
+        Model implementation with predict() method
+    """
+    # Load and return model
+    pass
+```
+
+## Loading Models by Flavor
+
+You can load models using either the specific flavor or the generic pyfunc interface:
+
+<CodeGroup>
+```python Flavor-Specific Loading
+# Load as sklearn model - returns sklearn estimator
+model = mlflow.sklearn.load_model("runs:/run_id/model")
+type(model)  # <class 'sklearn.ensemble._forest.RandomForestClassifier'>
+
+# Can use sklearn-specific methods
+feature_importances = model.feature_importances_
+```
+
+```python PyFunc Loading
+# Load as pyfunc - returns PyFuncModel wrapper
+model = mlflow.pyfunc.load_model("runs:/run_id/model")
+type(model)  # <class 'mlflow.pyfunc.PyFuncModel'>
+
+# Generic predict interface
+predictions = model.predict(X_test)
+```
+</CodeGroup>
+
+<Warning>
+When loading with the native flavor (e.g., `mlflow.sklearn.load_model()`), you get the original framework object. When loading with `mlflow.pyfunc.load_model()`, you get an MLflow wrapper with a consistent `predict()` interface.
+</Warning>
+
+## Custom Flavors
+
+You can create custom flavors by implementing the required loader module and flavor configuration. See the [Custom Models](/models/custom-models) guide for details.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always include model signatures">
+    Model signatures define the expected input and output schema, enabling validation and better error messages:
+    
+    ```python
+    signature = mlflow.models.infer_signature(X_train, model.predict(X_train))
+    mlflow.sklearn.log_model(model, "model", signature=signature)
+    ```
+  </Accordion>
+  
+  <Accordion title="Pin dependency versions">
+    Specify exact versions in pip_requirements to ensure reproducibility:
+    
+    ```python
+    mlflow.pytorch.log_model(
+        model,
+        "model",
+        pip_requirements=["torch==2.0.0", "torchvision==0.15.0"]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Include code dependencies">
+    If your model uses custom code, include it via code_paths:
+    
+    ```python
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        code_paths=["preprocessing.py", "feature_engineering.py"]
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate serialization format">
+    Choose serialization format based on your needs:
+    - `cloudpickle`: Maximum flexibility, works with lambdas and custom objects
+    - `pickle`: Standard Python, better for simple models
+    - `skops`: Most secure option for sklearn models
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Custom Models" icon="code" href="/models/custom-models">
+    Learn how to create custom PyFunc models
+  </Card>
+  <Card title="Model Signatures" icon="file-signature" href="/models/signatures">
+    Define input/output schemas for models
+  </Card>
+</CardGroup>

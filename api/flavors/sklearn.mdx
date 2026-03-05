@@ -1,0 +1,227 @@
+---
+title: mlflow.sklearn
+description: API reference for MLflow's scikit-learn flavor
+---
+
+The `mlflow.sklearn` module provides an API for logging and loading scikit-learn models. This module exports scikit-learn models with the following flavors:
+
+- **Python (native) pickle format** - The main flavor that can be loaded back into scikit-learn
+- **mlflow.pyfunc** - Produced for use by generic pyfunc-based deployment tools and batch inference
+
+<Note>
+The `mlflow.pyfunc` flavor is only added for scikit-learn models that define `predict()`, since `predict()` is required for pyfunc model inference.
+</Note>
+
+## Saving Models
+
+### save_model()
+
+Save a scikit-learn model to a path on the local file system.
+
+```python
+mlflow.sklearn.save_model(
+    sk_model,
+    path,
+    conda_env=None,
+    code_paths=None,
+    mlflow_model=None,
+    serialization_format="cloudpickle",
+    signature=None,
+    input_example=None,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    pyfunc_predict_fn="predict",
+    metadata=None,
+    skops_trusted_types=None,
+    extra_files=None
+)
+```
+
+<ParamField path="sk_model" type="sklearn model" required>
+  Scikit-learn model to be saved.
+</ParamField>
+
+<ParamField path="path" type="str" required>
+  Local path where the model is to be saved.
+</ParamField>
+
+<ParamField path="serialization_format" type="str" default="cloudpickle">
+  The format in which to serialize the model. Should be one of: `"skops"`, `"cloudpickle"`, or `"pickle"`.
+  
+  - `"skops"` - Guarantees safe deserialization
+  - `"cloudpickle"` - Better cross-system compatibility
+  - `"pickle"` - Standard Python pickle format
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  Model signature describing model inputs and outputs.
+</ParamField>
+
+<ParamField path="input_example" type="pd.DataFrame | np.ndarray | dict">
+  Example input that can be used for model testing and signature inference.
+</ParamField>
+
+<ParamField path="pyfunc_predict_fn" type="str" default="predict">
+  The prediction function to use for pyfunc inference. Supported: `"predict"`, `"predict_proba"`, `"predict_log_proba"`, `"predict_joint_log_proba"`, `"score"`.
+</ParamField>
+
+<ParamField path="skops_trusted_types" type="list[str]">
+  List of trusted types when loading model saved in `"skops"` format.
+</ParamField>
+
+### log_model()
+
+Log a scikit-learn model as an MLflow artifact for the current run.
+
+```python
+mlflow.sklearn.log_model(
+    sk_model,
+    artifact_path=None,
+    conda_env=None,
+    code_paths=None,
+    serialization_format="cloudpickle",
+    registered_model_name=None,
+    signature=None,
+    input_example=None,
+    await_registration_for=300,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    pyfunc_predict_fn="predict",
+    metadata=None,
+    extra_files=None,
+    params=None,
+    tags=None,
+    model_type=None,
+    step=0,
+    model_id=None,
+    name=None,
+    skops_trusted_types=None
+)
+```
+
+<ParamField path="sk_model" type="sklearn model" required>
+  Scikit-learn model to be logged.
+</ParamField>
+
+<ParamField path="name" type="str">
+  Name of the logged model.
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under this registered model name.
+</ParamField>
+
+**Returns:** `ModelInfo` instance containing metadata of the logged model.
+
+## Loading Models
+
+### load_model()
+
+Load a scikit-learn model from a local file or a run.
+
+```python
+mlflow.sklearn.load_model(
+    model_uri,
+    dst_path=None
+)
+```
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes:
+  - `/Users/me/path/to/local/model`
+  - `relative/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+  - `models:/<model_name>/<model_version>`
+  - `models:/<model_name>/<stage>`
+</ParamField>
+
+<ParamField path="dst_path" type="str">
+  Local filesystem path to download the model artifact.
+</ParamField>
+
+**Returns:** A scikit-learn model.
+
+## Autologging
+
+### autolog()
+
+Enables (or disables) and configures autologging for scikit-learn estimators.
+
+```python
+mlflow.sklearn.autolog(
+    log_input_examples=False,
+    log_model_signatures=True,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    max_tuning_runs=5,
+    log_post_training_metrics=True,
+    serialization_format="cloudpickle",
+    registered_model_name=None,
+    pos_label=None,
+    extra_tags=None
+)
+```
+
+<ParamField path="log_models" type="bool" default="True">
+  If `True`, trained models are logged as MLflow model artifacts.
+</ParamField>
+
+<ParamField path="log_post_training_metrics" type="bool" default="True">
+  If `True`, post-training metrics are logged when users call metric APIs.
+</ParamField>
+
+<ParamField path="max_tuning_runs" type="int" default="5">
+  Maximum number of child runs to log for hyperparameter tuning.
+</ParamField>
+
+### When is autologging performed?
+
+Autologging is performed when you call:
+- `estimator.fit()`
+- `estimator.fit_predict()`
+- `estimator.fit_transform()`
+
+### Logged Information
+
+**Parameters:**
+- Parameters obtained by `estimator.get_params(deep=True)`
+
+**Training Metrics:**
+- Training score obtained by `estimator.score`
+- Common metrics for classifiers: precision, recall, f1, accuracy
+- Common metrics for regressors: MSE, RMSE, MAE, R2
+
+**Post-training Metrics:**
+- Metrics from `model.score` calls
+- Metrics from `sklearn.metrics` module APIs
+
+## Example
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.datasets import load_iris
+from sklearn import tree
+from mlflow.models import infer_signature
+
+with mlflow.start_run():
+    # Load dataset and train model
+    iris = load_iris()
+    sk_model = tree.DecisionTreeClassifier()
+    sk_model = sk_model.fit(iris.data, iris.target)
+    
+    # Log model params
+    mlflow.log_param("criterion", sk_model.criterion)
+    mlflow.log_param("splitter", sk_model.splitter)
+    
+    # Infer signature
+    signature = infer_signature(iris.data, sk_model.predict(iris.data))
+    
+    # Log model
+    mlflow.sklearn.log_model(sk_model, name="sklearn_model", signature=signature)
+```

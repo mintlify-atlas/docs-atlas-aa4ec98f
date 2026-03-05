@@ -1,0 +1,386 @@
+---
+title: "Evaluating LLM Applications"
+description: "End-to-end evaluation of LLM applications using MLflow's evaluation framework"
+---
+
+MLflow provides a comprehensive framework for evaluating LLM applications, from simple question-answering to complex RAG systems. This guide shows you how to measure and improve your LLM application quality.
+
+## Why Evaluate?
+
+Evaluation helps you:
+- Measure output quality objectively
+- Compare different models or prompts
+- Track performance over time
+- Catch regressions before deployment
+- Optimize costs while maintaining quality
+
+## Quick Start: Basic Q&A Evaluation
+
+<Steps>
+  <Step title="Prepare your evaluation dataset">
+    ```python
+    import pandas as pd
+
+    eval_df = pd.DataFrame({
+        "inputs": [
+            "What is MLflow?",
+            "What is Spark?",
+            "What is Python?",
+        ],
+        "ground_truth": [
+            "MLflow is an open-source platform for managing the end-to-end machine learning lifecycle.",
+            "Apache Spark is an open-source, distributed computing system designed for big data processing.",
+            "Python is a high-level programming language created by Guido van Rossum in 1991.",
+        ],
+    })
+    ```
+  </Step>
+
+  <Step title="Log your model">
+    ```python
+    import openai
+    import mlflow
+
+    with mlflow.start_run() as run:
+        system_prompt = "Answer the following question in two sentences"
+        logged_model = mlflow.openai.log_model(
+            model="gpt-4o-mini",
+            task=openai.chat.completions,
+            name="model",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "{question}"},
+            ],
+        )
+    ```
+  </Step>
+
+  <Step title="Run evaluation">
+    ```python
+    results = mlflow.evaluate(
+        logged_model.model_uri,
+        eval_df,
+        targets="ground_truth",
+        model_type="question-answering",
+        evaluators="default"
+    )
+
+    print(results.metrics)
+    print(results.tables["eval_results_table"])
+    ```
+  </Step>
+</Steps>
+
+## Built-in Metrics
+
+MLflow provides several built-in metrics for LLM evaluation:
+
+### Question-Answering Metrics
+
+```python
+results = mlflow.evaluate(
+    model_uri,
+    eval_df,
+    targets="ground_truth",
+    model_type="question-answering",  # Enables QA metrics
+    evaluators="default"
+)
+```
+
+Default QA metrics include:
+- **Token count** - Number of tokens in response
+- **Toxicity** - Toxicity score of output
+- **Flesch-Kincaid** - Readability score
+- **Exact match** - Exact string matching with ground truth
+
+### Text Similarity Metrics
+
+```python
+from mlflow.metrics.genai import answer_similarity
+
+results = mlflow.evaluate(
+    model_uri,
+    eval_df,
+    targets="ground_truth",
+    model_type="text",
+    extra_metrics=[answer_similarity()]
+)
+```
+
+## LLM-as-Judge Evaluation
+
+Use a powerful LLM to evaluate your application's outputs:
+
+```python
+import openai
+import pandas as pd
+import mlflow
+from mlflow.metrics.genai import EvaluationExample, answer_similarity
+
+# Define an evaluation example to guide the judge
+example = EvaluationExample(
+    input="What is MLflow?",
+    output="MLflow is an open-source platform for managing machine "
+    "learning workflows, including experiment tracking, model packaging, "
+    "versioning, and deployment, simplifying the ML lifecycle.",
+    score=4,
+    justification="The definition effectively explains what MLflow is "
+    "its purpose, and its developer. It could be more concise for a 5-score.",
+    grading_context={
+        "ground_truth": "MLflow is an open-source platform for managing "
+        "the end-to-end machine learning (ML) lifecycle. It was developed by Databricks."
+    },
+)
+
+# Create answer similarity metric with the example
+answer_similarity_metric = answer_similarity(examples=[example])
+
+eval_df = pd.DataFrame({
+    "inputs": [
+        "What is MLflow?",
+        "What is Spark?",
+        "What is Python?",
+    ],
+    "ground_truth": [
+        "MLflow is an open-source platform for managing the end-to-end machine learning (ML) lifecycle.",
+        "Apache Spark is an open-source, distributed computing system designed for big data processing and analytics.",
+        "Python is a high-level programming language that was created by Guido van Rossum and released in 1991.",
+    ],
+})
+
+with mlflow.start_run() as run:
+    system_prompt = "Answer the following question in two sentences"
+    logged_model = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="model",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "{question}"},
+        ],
+    )
+
+    results = mlflow.evaluate(
+        logged_model.model_uri,
+        eval_df,
+        targets="ground_truth",
+        model_type="question-answering",
+        extra_metrics=[answer_similarity_metric],
+    )
+    
+    print(results.metrics)
+    eval_table = results.tables["eval_results_table"]
+    print(eval_table)
+```
+
+The LLM judge will score each answer based on similarity to ground truth and provide justifications.
+
+## Custom Metrics
+
+Create custom metrics for domain-specific evaluation:
+
+```python
+from mlflow.metrics import make_metric
+
+def length_check(eval_df, builtin_metrics):
+    """Custom metric: Check if responses are within length bounds"""
+    scores = []
+    for output in eval_df["outputs"]:
+        word_count = len(output.split())
+        # Score 1 if within 50-200 words, 0 otherwise
+        scores.append(1.0 if 50 <= word_count <= 200 else 0.0)
+    return scores
+
+length_metric = make_metric(
+    eval_fn=length_check,
+    greater_is_better=True,
+    name="length_check"
+)
+
+results = mlflow.evaluate(
+    model_uri,
+    eval_df,
+    extra_metrics=[length_metric]
+)
+```
+
+## Custom Code-Based Metrics
+
+For more complex evaluation logic:
+
+```python
+import mlflow
+from mlflow.metrics.genai import make_genai_metric
+
+# Define custom evaluation logic
+def check_factuality(inputs, outputs, ground_truth):
+    """Check if output contains key facts from ground truth"""
+    scores = []
+    for output, truth in zip(outputs, ground_truth):
+        # Simple keyword-based factuality check
+        key_facts = truth.lower().split()
+        found_facts = sum(1 for fact in key_facts if fact in output.lower())
+        score = found_facts / len(key_facts)
+        scores.append(score)
+    return scores
+
+factuality_metric = make_metric(
+    eval_fn=lambda eval_df, _: check_factuality(
+        eval_df["inputs"],
+        eval_df["outputs"],
+        eval_df["ground_truth"]
+    ),
+    greater_is_better=True,
+    name="factuality_score"
+)
+
+results = mlflow.evaluate(
+    model_uri,
+    eval_df,
+    targets="ground_truth",
+    extra_metrics=[factuality_metric]
+)
+```
+
+## Evaluating RAG Applications
+
+For Retrieval-Augmented Generation systems, evaluate both retrieval and generation:
+
+```python
+import pandas as pd
+import mlflow
+from mlflow.metrics.genai import answer_similarity, answer_correctness, relevance
+
+# Evaluation dataset with retrieved context
+eval_df = pd.DataFrame({
+    "question": [
+        "What are the key features of MLflow?",
+        "How do I log a model in MLflow?",
+    ],
+    "retrieved_context": [
+        "MLflow provides experiment tracking, model registry, and deployment...",
+        "Use mlflow.log_model() to save models with metadata...",
+    ],
+    "ground_truth": [
+        "MLflow offers experiment tracking, model versioning, and deployment tools.",
+        "Call mlflow.log_model() within a run to log models.",
+    ],
+})
+
+# Evaluate both answer quality and retrieval relevance
+results = mlflow.evaluate(
+    rag_model_uri,
+    eval_df,
+    targets="ground_truth",
+    model_type="question-answering",
+    extra_metrics=[
+        answer_similarity(),
+        answer_correctness(),
+        relevance(),  # Evaluates retrieval quality
+    ]
+)
+```
+
+## Comparing Models
+
+Compare different models or prompt variations:
+
+```python
+import mlflow
+
+# Evaluate multiple models
+models_to_compare = [
+    {"name": "gpt-4o-mini", "uri": "runs:/abc123/model"},
+    {"name": "gpt-4o", "uri": "runs:/def456/model"},
+]
+
+comparison_results = {}
+
+for model_info in models_to_compare:
+    results = mlflow.evaluate(
+        model_info["uri"],
+        eval_df,
+        targets="ground_truth",
+        model_type="question-answering",
+    )
+    comparison_results[model_info["name"]] = results.metrics
+
+# Compare metrics
+for model_name, metrics in comparison_results.items():
+    print(f"{model_name}: {metrics}")
+```
+
+## Continuous Evaluation
+
+Set up evaluation as part of your CI/CD pipeline:
+
+```python
+import mlflow
+
+def evaluate_model(model_uri, eval_dataset):
+    """Run evaluation and fail if metrics don't meet thresholds"""
+    results = mlflow.evaluate(
+        model_uri,
+        eval_dataset,
+        targets="ground_truth",
+        model_type="question-answering",
+    )
+    
+    # Define quality thresholds
+    thresholds = {
+        "toxicity/v1/mean": 0.1,  # Max toxicity
+        "token_count/mean": 500,  # Max token usage
+    }
+    
+    # Check if metrics meet thresholds
+    for metric, threshold in thresholds.items():
+        if metric in results.metrics:
+            if results.metrics[metric] > threshold:
+                raise ValueError(
+                    f"Metric {metric} failed: {results.metrics[metric]} > {threshold}"
+                )
+    
+    return results
+
+# Use in your pipeline
+results = evaluate_model(model_uri, eval_df)
+print("Evaluation passed!")
+```
+
+## Viewing Evaluation Results
+
+MLflow UI provides detailed evaluation dashboards:
+
+1. Navigate to your experiment in MLflow UI
+2. Click on the **Evaluation** tab
+3. View:
+   - Aggregate metrics across all samples
+   - Per-sample results table
+   - Metric distributions and charts
+   - Side-by-side model comparisons
+
+## Best Practices
+
+- **Diverse datasets**: Include edge cases and failure modes
+- **Multiple metrics**: Combine automated and LLM-as-judge metrics
+- **Version control**: Track eval datasets with your code
+- **Regular evaluation**: Run evals on every model change
+- **Human review**: Sample and manually review low-scoring outputs
+- **Cost optimization**: Start with smaller/cheaper judge models
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Monitoring" href="/guides/llm/agent-monitoring" icon="robot">
+    Monitor multi-agent system performance
+  </Card>
+  <Card title="Prompt Engineering" href="/guides/llm/prompt-engineering" icon="wand-magic-sparkles">
+    Optimize prompts with MLflow
+  </Card>
+  <Card title="Tracing" href="/guides/llm/tracing-quickstart" icon="timeline">
+    Debug with automatic tracing
+  </Card>
+  <Card title="Evaluation API" href="/python_api/mlflow.evaluate" icon="code">
+    Full evaluation API reference
+  </Card>
+</CardGroup>

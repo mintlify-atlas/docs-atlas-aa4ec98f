@@ -1,0 +1,179 @@
+---
+title: MLflow Integrations
+description: Integrate MLflow with popular ML frameworks and libraries
+---
+
+MLflow provides native integrations with popular machine learning frameworks and libraries, enabling seamless tracking, logging, and deployment of models across your ML ecosystem.
+
+## Supported Integrations
+
+MLflow offers first-class support for the following frameworks:
+
+<CardGroup cols={2}>
+  <Card title="LangChain" icon="link" href="/integrations/langchain">
+    Build and track LLM applications with LangChain chains and agents
+  </Card>
+  
+  <Card title="OpenAI" icon="brain" href="/integrations/openai">
+    Log OpenAI API calls and deploy models with automatic tracing
+  </Card>
+  
+  <Card title="LlamaIndex" icon="database" href="/integrations/llama-index">
+    Track LlamaIndex queries and log retrieval-augmented generation workflows
+  </Card>
+  
+  <Card title="PyTorch" icon="fire" href="/integrations/pytorch">
+    Train and log PyTorch models with Lightning autologging support
+  </Card>
+  
+  <Card title="TensorFlow" icon="t" href="/integrations/tensorflow">
+    Keras and TensorFlow model logging with automatic metric tracking
+  </Card>
+  
+  <Card title="Scikit-learn" icon="chart-line" href="/integrations/scikit-learn">
+    Automatically log parameters and metrics from sklearn estimators
+  </Card>
+  
+  <Card title="HuggingFace" icon="face-smile" href="/integrations/huggingface">
+    Log transformers models and pipelines from the HuggingFace ecosystem
+  </Card>
+</CardGroup>
+
+## Integration Features
+
+Each integration provides:
+
+### Autologging
+Automatically capture metrics, parameters, and models without explicit logging code:
+
+```python
+import mlflow
+
+# Enable autologging for your framework
+mlflow.pytorch.autolog()
+mlflow.sklearn.autolog()
+mlflow.tensorflow.autolog()
+```
+
+### Model Logging
+Log models in MLflow's standard format for easy deployment:
+
+```python
+import mlflow.pytorch
+
+with mlflow.start_run():
+    # Train your model
+    model = train_model()
+    
+    # Log the model
+    mlflow.pytorch.log_model(model, "model")
+```
+
+### Tracing
+Capture execution traces for LLM applications:
+
+```python
+import mlflow
+
+mlflow.langchain.autolog(log_traces=True)
+mlflow.openai.autolog(log_traces=True)
+```
+
+### Deployment
+Deploy models as REST APIs or batch inference jobs:
+
+```bash
+mlflow models serve -m runs:/<run_id>/model -p 5000
+```
+
+## Framework-Specific Capabilities
+
+<AccordionGroup>
+  <Accordion title="LLM Frameworks (LangChain, OpenAI, LlamaIndex)">
+    - Automatic trace capture for chains and agents
+    - Token usage tracking
+    - Input/output logging
+    - Model registration with signatures
+    - Retrieval-augmented generation (RAG) support
+  </Accordion>
+  
+  <Accordion title="Deep Learning (PyTorch, TensorFlow)">
+    - Training metrics and loss curves
+    - Model checkpointing
+    - Hardware metrics (GPU utilization)
+    - Hyperparameter logging
+    - Early stopping callbacks
+  </Accordion>
+  
+  <Accordion title="Traditional ML (Scikit-learn)">
+    - Cross-validation metrics
+    - Feature importance tracking
+    - Model evaluation metrics
+    - Pipeline logging
+    - Hyperparameter tuning with GridSearchCV
+  </Accordion>
+  
+  <Accordion title="Transformers (HuggingFace)">
+    - Pipeline logging
+    - Model card preservation
+    - PEFT adapter support
+    - Custom component handling
+    - Inference configuration
+  </Accordion>
+</AccordionGroup>
+
+## Getting Started
+
+To get started with a specific integration, select the framework from the list above or install the required dependencies:
+
+```bash
+# Install MLflow with specific integrations
+pip install mlflow[extras]
+
+# Or install framework separately
+pip install mlflow torch pytorch-lightning
+pip install mlflow scikit-learn
+pip install mlflow tensorflow
+pip install mlflow transformers
+pip install mlflow langchain openai
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Enable Autologging Early">
+    Call `autolog()` before training to capture all metrics automatically
+  </Step>
+  
+  <Step title="Use Model Signatures">
+    Always log models with signatures for better inference validation
+  </Step>
+  
+  <Step title="Track Input Examples">
+    Include input examples to make model usage clear
+  </Step>
+  
+  <Step title="Leverage Model Registry">
+    Register important models for version control and deployment
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tracking Concepts" icon="chart-mixed" href="/tracking">
+    Learn about runs, experiments, and metrics
+  </Card>
+  
+  <Card title="Model Registry" icon="database" href="/model-registry">
+    Version and manage your models
+  </Card>
+  
+  <Card title="Deployment" icon="rocket" href="/deployment">
+    Deploy models to production
+  </Card>
+  
+  <Card title="Projects" icon="folder" href="/projects">
+    Package ML code for reproducibility
+  </Card>
+</CardGroup>

@@ -1,0 +1,485 @@
+---
+title: mlflow models
+description: Deploy and manage MLflow models locally
+---
+
+Deploy MLflow models locally. To deploy a model associated with a run on a tracking server, set the `MLFLOW_TRACKING_URI` environment variable to the URL of the desired server.
+
+## Commands
+
+### serve
+
+Serve a model saved with MLflow by launching a webserver.
+
+```bash
+mlflow models serve [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--model-uri" type="string" required>
+  URI to the model. Supported URIs: `runs:/`, `models:/`, `file://`, or local path.
+  
+  **Short option:** `-m`
+</ParamField>
+
+<ParamField path="--port" type="integer" default="5000">
+  Port to serve the model on.
+  
+  **Short option:** `-p`
+</ParamField>
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Host to bind the server to.
+  
+  **Short option:** `-h`
+</ParamField>
+
+<ParamField path="--timeout" type="integer" default="60">
+  Timeout in seconds for serving requests.
+</ParamField>
+
+<ParamField path="--workers" type="integer">
+  Number of worker processes. Defaults to CPU count.
+  
+  **Environment variable:** `MLFLOW_MODELS_WORKERS`
+</ParamField>
+
+<ParamField path="--env-manager" type="string">
+  Environment manager to use. Options: `local`, `virtualenv`, `conda`.
+</ParamField>
+
+<ParamField path="--no-conda" type="boolean">
+  Use local environment instead of conda.
+</ParamField>
+
+<ParamField path="--install-mlflow" type="boolean">
+  Install MLflow in the model environment.
+</ParamField>
+
+<ParamField path="--enable-mlserver" type="boolean">
+  Enable MLServer for serving (supports additional protocols like gRPC).
+</ParamField>
+
+#### Example
+
+```bash
+# Serve model from a run
+mlflow models serve -m runs:/my-run-id/model-path
+
+# Serve on custom port and host
+mlflow models serve -m models:/my-model/1 -p 8080 -h 0.0.0.0
+
+# Serve with custom workers
+mlflow models serve -m runs:/abc123/model --workers 4
+
+# Serve with MLServer
+mlflow models serve -m models:/my-model/Production --enable-mlserver
+```
+
+#### Request Examples
+
+```bash
+# Records orientation (pandas DataFrame)
+curl http://127.0.0.1:5000/invocations -H 'Content-Type: application/json' -d '{
+  "dataframe_records": [{"a":1, "b":2}, {"a":3, "b":4}]
+}'
+
+# Split orientation (pandas DataFrame)
+curl http://127.0.0.1:5000/invocations -H 'Content-Type: application/json' -d '{
+  "dataframe_split": {
+    "columns": ["a", "b"],
+    "data": [[1, 2], [3, 4]]
+  }
+}'
+
+# Inputs format (array/tensor)
+curl http://127.0.0.1:5000/invocations -H 'Content-Type: application/json' -d '{
+  "inputs": [[1, 2], [3, 4]]
+}'
+
+# Instances format (tensor data)
+curl http://127.0.0.1:5000/invocations -H 'Content-Type: application/json' -d '{
+  "instances": [
+    {"a": "t1", "b": [1, 2, 3]},
+    {"a": "t2", "b": [4, 5, 6]}
+  ]
+}'
+```
+
+---
+
+### predict
+
+Generate predictions using a saved MLflow model.
+
+```bash
+mlflow models predict [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--model-uri" type="string" required>
+  URI to the model.
+  
+  **Short option:** `-m`
+</ParamField>
+
+<ParamField path="--input-path" type="string">
+  Path to CSV file containing pandas DataFrame to predict against.
+  
+  **Short option:** `-i`
+</ParamField>
+
+<ParamField path="--output-path" type="string">
+  File to output results to as JSON. If not provided, outputs to stdout.
+  
+  **Short option:** `-o`
+</ParamField>
+
+<ParamField path="--content-type" type="string" default="json">
+  Content type of the input file. Options: `json`, `csv`.
+  
+  **Short option:** `-t`
+</ParamField>
+
+<ParamField path="--env-manager" type="string" default="virtualenv">
+  Environment manager to use. Options: `local`, `virtualenv`, `conda`.
+</ParamField>
+
+<ParamField path="--install-mlflow" type="boolean">
+  Install MLflow in the model environment.
+</ParamField>
+
+<ParamField path="--pip-requirements-override" type="string">
+  Override model dependencies. Comma-separated string like `x==y,z==a`.
+  
+  **Short option:** `-r`
+</ParamField>
+
+<ParamField path="--env" type="string">
+  Extra environment variables to set. Format: `key=value`. Can be specified multiple times.
+</ParamField>
+
+#### Example
+
+```bash
+# Predict from CSV input
+mlflow models predict -m runs:/abc123/model -i data.csv
+
+# Save predictions to file
+mlflow models predict -m models:/my-model/1 -i input.csv -o predictions.json
+
+# Predict with custom environment variables
+mlflow models predict -m runs:/abc123/model -i data.csv --env AWS_REGION=us-west-2
+
+# Override pip requirements
+mlflow models predict \
+  -m runs:/abc123/model \
+  -i data.csv \
+  -r "scikit-learn==1.0.0,pandas==1.3.0"
+```
+
+---
+
+### prepare-env
+
+Prepare the environment for serving or predicting with a model.
+
+```bash
+mlflow models prepare-env [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--model-uri" type="string" required>
+  URI to the model.
+  
+  **Short option:** `-m`
+</ParamField>
+
+<ParamField path="--env-manager" type="string">
+  Environment manager to use. Options: `local`, `virtualenv`, `conda`.
+</ParamField>
+
+<ParamField path="--install-mlflow" type="boolean">
+  Install MLflow in the model environment.
+</ParamField>
+
+#### Example
+
+```bash
+# Prepare environment for a model
+mlflow models prepare-env -m runs:/abc123/model
+
+# Prepare with conda environment
+mlflow models prepare-env -m models:/my-model/1 --env-manager conda
+```
+
+#### Notes
+
+- Downloads dependencies and initializes the environment
+- After preparation, `serve` and `predict` commands will be faster
+- Useful for pre-warming environments in deployment pipelines
+
+---
+
+### build-docker
+
+Build a Docker image for serving an MLflow model.
+
+```bash
+mlflow models build-docker [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--model-uri" type="string">
+  URI to the model. If not specified, mount model at `/opt/ml/model` when running the container.
+  
+  **Short option:** `-m`
+</ParamField>
+
+<ParamField path="--name" type="string" default="mlflow-pyfunc-servable">
+  Name for the built Docker image.
+  
+  **Short option:** `-n`
+</ParamField>
+
+<ParamField path="--env-manager" type="string">
+  Environment manager to use in the container.
+</ParamField>
+
+<ParamField path="--mlflow-home" type="string">
+  Path to local MLflow source directory (for development).
+</ParamField>
+
+<ParamField path="--install-java" type="boolean">
+  Install Java in the Docker image (required for some flavors like Spark, H2O).
+</ParamField>
+
+<ParamField path="--install-mlflow" type="boolean">
+  Install MLflow in the Docker image.
+</ParamField>
+
+<ParamField path="--enable-mlserver" type="boolean">
+  Enable MLServer in the Docker image.
+</ParamField>
+
+#### Example
+
+```bash
+# Build image with model URI
+mlflow models build-docker -m runs:/abc123/model -n my-model-image
+docker run -p 5001:8080 my-model-image
+
+# Build generic image (mount model at runtime)
+mlflow models build-docker -n my-base-image
+docker run -p 5001:8080 -v /local/model:/opt/ml/model my-base-image
+
+# Build with Java support
+mlflow models build-docker -m runs:/abc123/spark-model --install-java
+
+# Build with MLServer
+mlflow models build-docker -m models:/my-model/1 --enable-mlserver
+```
+
+#### Runtime Configuration
+
+```bash
+# Disable nginx (e.g., for Google Cloud Run)
+docker run -p 5001:8080 -e DISABLE_NGINX=true my-model-image
+
+# Set custom number of workers
+docker run -p 5001:8080 -e MLFLOW_MODELS_WORKERS=4 my-model-image
+```
+
+---
+
+### generate-dockerfile
+
+Generate a Dockerfile for serving an MLflow model.
+
+```bash
+mlflow models generate-dockerfile [OPTIONS]
+```
+
+#### Options
+
+<ParamField path="--model-uri" type="string">
+  URI to the model.
+  
+  **Short option:** `-m`
+</ParamField>
+
+<ParamField path="--output-directory" type="string" default="mlflow-dockerfile">
+  Directory where the Dockerfile will be generated.
+  
+  **Short option:** `-d`
+</ParamField>
+
+<ParamField path="--env-manager" type="string">
+  Environment manager to use.
+</ParamField>
+
+<ParamField path="--mlflow-home" type="string">
+  Path to local MLflow source directory.
+</ParamField>
+
+<ParamField path="--install-java" type="boolean">
+  Install Java in the Dockerfile.
+</ParamField>
+
+<ParamField path="--install-mlflow" type="boolean">
+  Install MLflow in the Dockerfile.
+</ParamField>
+
+<ParamField path="--enable-mlserver" type="boolean">
+  Enable MLServer in the Dockerfile.
+</ParamField>
+
+#### Example
+
+```bash
+# Generate Dockerfile for a model
+mlflow models generate-dockerfile -m runs:/abc123/model -d ./docker-build
+
+# Generate with custom output directory
+mlflow models generate-dockerfile -m models:/my-model/1 -d /tmp/dockerfile
+
+# Generate with MLServer enabled
+mlflow models generate-dockerfile -m runs:/abc123/model --enable-mlserver
+```
+
+---
+
+### update-pip-requirements
+
+Add or remove requirements from a model's dependency files.
+
+```bash
+mlflow models update-pip-requirements [OPTIONS] OPERATION REQUIREMENT_STRINGS...
+```
+
+#### Arguments
+
+<ParamField path="OPERATION" type="string" required>
+  Operation to perform. Options: `add`, `remove`.
+</ParamField>
+
+<ParamField path="REQUIREMENT_STRINGS" type="string" required>
+  List of pip requirement specifiers (e.g., `pandas==1.0.0`, `scikit-learn`).
+</ParamField>
+
+#### Options
+
+<ParamField path="--model-uri" type="string" required>
+  URI to the model. Model registry URIs (`models:/`) are not supported.
+  
+  **Short option:** `-m`
+</ParamField>
+
+#### Example
+
+```bash
+# Add requirements
+mlflow models update-pip-requirements \
+  -m runs:/abc123/model \
+  add "pandas==1.0.0" "scikit-learn" "mlflow>=2.8,!=2.9.0"
+
+# Remove requirements
+mlflow models update-pip-requirements \
+  -m /path/to/local/model \
+  remove "torchvision" "pydantic"
+
+# Add multiple packages
+mlflow models update-pip-requirements \
+  -m runs:/abc123/model \
+  add "tensorflow==2.10.0" "numpy>=1.20.0" "matplotlib"
+```
+
+#### Notes
+
+- Model registry URIs (`models:/`) are not supported (registry artifacts are read-only)
+- Read-only artifact repositories are not supported
+- When adding, overlapping requirements are overwritten; new ones are appended
+- When removing, version specifiers are ignored; package names are removed
+- Non-existent requirements during removal are silently ignored
+
+## Complete Examples
+
+### Local Model Serving
+
+```bash
+# Serve a model locally
+mlflow models serve -m runs:/abc123/model &
+
+# Test the endpoint
+curl http://127.0.0.1:5000/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{"dataframe_split": {"columns": ["x"], "data": [[1], [2], [3]]}}'
+```
+
+### Production Deployment
+
+```bash
+# Build production Docker image
+mlflow models build-docker \
+  -m models:/production-model/latest \
+  -n production-model:v1 \
+  --install-java
+
+# Run in production
+docker run -d \
+  -p 8080:8080 \
+  -e MLFLOW_MODELS_WORKERS=8 \
+  --name model-server \
+  production-model:v1
+```
+
+### Batch Prediction
+
+```bash
+# Prepare environment once
+mlflow models prepare-env -m runs:/abc123/model
+
+# Run batch predictions
+mlflow models predict \
+  -m runs:/abc123/model \
+  -i batch_data.csv \
+  -o predictions.json \
+  -t csv
+```
+
+### Model Dependency Management
+
+```bash
+# Download model locally
+mlflow artifacts download -r runs:/abc123/model -d ./my-model
+
+# Update dependencies
+mlflow models update-pip-requirements \
+  -m ./my-model \
+  add "scikit-learn==1.2.0" "pandas==1.5.0"
+
+# Serve updated model
+mlflow models serve -m ./my-model
+```
+
+### Multi-Environment Deployment
+
+```bash
+# Development environment (local)
+mlflow models serve -m runs:/abc123/model --no-conda
+
+# Staging environment (virtualenv)
+mlflow models serve \
+  -m models:/my-model/Staging \
+  --env-manager virtualenv \
+  -p 5001
+
+# Production (Docker)
+mlflow models build-docker \
+  -m models:/my-model/Production \
+  -n prod-model
+```

@@ -1,0 +1,224 @@
+---
+title: mlflow.lightgbm
+description: API reference for MLflow's LightGBM flavor
+---
+
+The `mlflow.lightgbm` module provides an API for logging and loading LightGBM models. This module exports LightGBM models with the following flavors:
+
+- **LightGBM (native) format** - The main flavor that can be loaded back into LightGBM
+- **mlflow.pyfunc** - Produced for use by generic pyfunc-based deployment tools and batch inference
+
+## Saving Models
+
+### save_model()
+
+Save a LightGBM model to a path on the local file system.
+
+```python
+mlflow.lightgbm.save_model(
+    lgb_model,
+    path,
+    conda_env=None,
+    code_paths=None,
+    mlflow_model=None,
+    signature=None,
+    input_example=None,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    serialization_format="cloudpickle",
+    skops_trusted_types=None,
+    extra_files=None,
+    **kwargs
+)
+```
+
+<ParamField path="lgb_model" type="lightgbm.Booster | LGBMModel" required>
+  LightGBM model to be saved. Can be either `lightgbm.Booster` or models that implement the scikit-learn API.
+</ParamField>
+
+<ParamField path="path" type="str" required>
+  Local path where the model is to be saved.
+</ParamField>
+
+<ParamField path="serialization_format" type="str" default="cloudpickle">
+  Format for serializing non-Booster models. Options:
+  - `"skops"` - Guarantees safe deserialization
+  - `"cloudpickle"` - Better cross-system compatibility
+  - `"pickle"` - Standard Python pickle format
+</ParamField>
+
+<ParamField path="skops_trusted_types" type="list[str]">
+  List of trusted types when loading model saved in `"skops"` format.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  Model signature describing model inputs and outputs.
+</ParamField>
+
+### log_model()
+
+Log a LightGBM model as an MLflow artifact for the current run.
+
+```python
+mlflow.lightgbm.log_model(
+    lgb_model,
+    artifact_path=None,
+    conda_env=None,
+    code_paths=None,
+    registered_model_name=None,
+    signature=None,
+    input_example=None,
+    await_registration_for=300,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    extra_files=None,
+    name=None,
+    params=None,
+    tags=None,
+    model_type=None,
+    step=0,
+    model_id=None,
+    serialization_format="cloudpickle",
+    skops_trusted_types=None,
+    **kwargs
+)
+```
+
+<ParamField path="lgb_model" type="lightgbm.Booster | LGBMModel" required>
+  LightGBM model to be logged.
+</ParamField>
+
+<ParamField path="name" type="str">
+  Name of the logged model.
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under this registered model name.
+</ParamField>
+
+**Returns:** `ModelInfo` instance containing metadata of the logged model.
+
+## Loading Models
+
+### load_model()
+
+Load a LightGBM model from a local file or a run.
+
+```python
+mlflow.lightgbm.load_model(
+    model_uri,
+    dst_path=None
+)
+```
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes:
+  - `/Users/me/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+  - `models:/<model_name>/<model_version>`
+</ParamField>
+
+**Returns:** A LightGBM model (instance of `lightgbm.Booster` or LightGBM scikit-learn model).
+
+## Autologging
+
+### autolog()
+
+Enables (or disables) and configures autologging from LightGBM to MLflow.
+
+```python
+mlflow.lightgbm.autolog(
+    log_input_examples=False,
+    log_model_signatures=True,
+    log_models=True,
+    log_datasets=True,
+    disable=False,
+    exclusive=False,
+    disable_for_unsupported_versions=False,
+    silent=False,
+    registered_model_name=None,
+    extra_tags=None
+)
+```
+
+<ParamField path="log_models" type="bool" default="True">
+  If True, trained models are logged as MLflow model artifacts.
+</ParamField>
+
+<ParamField path="log_datasets" type="bool" default="True">
+  If True, train and validation dataset information is logged to MLflow Tracking.
+</ParamField>
+
+<Note>
+The scikit-learn API is now supported for autologging.
+</Note>
+
+### Logged Information
+
+Autologging captures:
+- Parameters specified in `lightgbm.train`
+- Metrics on each iteration (if `valid_sets` specified)
+- Metrics at the best iteration (if `early_stopping_rounds` specified)
+- Feature importance (both "split" and "gain") as JSON files and plots
+- Trained model with input example and inferred signature
+
+## Example
+
+```python
+import mlflow
+from lightgbm import LGBMClassifier
+from sklearn import datasets
+
+# Enable autologging
+mlflow.lightgbm.autolog()
+
+# Load iris dataset
+X, y = datasets.load_iris(return_X_y=True, as_frame=True)
+
+# Initialize and train model
+model = LGBMClassifier(objective="multiclass", random_state=42)
+
+with mlflow.start_run():
+    model.fit(X, y)
+
+# Load model for inference
+model_uri = f"runs:/{mlflow.last_active_run().info.run_id}/model"
+loaded_model = mlflow.lightgbm.load_model(model_uri)
+print(loaded_model.predict(X[:5]))
+```
+
+## Safe Model Saving Example
+
+```python
+from pathlib import Path
+from lightgbm import LGBMClassifier
+from sklearn import datasets
+import mlflow
+
+# Load dataset
+X, y = datasets.load_iris(return_X_y=True, as_frame=True)
+
+# Train model
+model = LGBMClassifier(objective="multiclass", random_state=42)
+model.fit(X, y)
+
+# Save with skops format for safe deserialization
+path = "model"
+mlflow.lightgbm.save_model(
+    model,
+    path,
+    serialization_format="skops",
+    skops_trusted_types=[
+        "collections.OrderedDict",
+        "lightgbm.basic.Booster",
+        "lightgbm.sklearn.LGBMClassifier",
+    ],
+)
+
+# Load and use
+loaded_model = mlflow.lightgbm.load_model(Path.cwd() / path)
+print(loaded_model.predict(X[:5]))
+```

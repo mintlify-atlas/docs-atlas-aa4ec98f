@@ -1,0 +1,549 @@
+---
+title: "Prompt Engineering Best Practices"
+description: "Optimize, version, and manage prompts with MLflow for better LLM outputs"
+---
+
+Prompt engineering is critical for LLM application quality. MLflow provides tools to systematically develop, test, version, and deploy prompts alongside your models.
+
+## Why Manage Prompts?
+
+Prompts are code. They should be:
+- **Versioned** - Track changes and rollback when needed
+- **Tested** - Evaluate prompt variations systematically
+- **Reusable** - Share prompts across projects
+- **Deployable** - Deploy prompt updates without code changes
+- **Auditable** - Know what prompt produced each output
+
+## Prompt Templates in MLflow
+
+### Basic Prompt Template
+
+<Steps>
+  <Step title="Define a prompt template">
+    ```python
+    import mlflow
+    import openai
+
+    # Define prompt with variables
+    system_prompt = "You are a helpful {role} assistant."
+    user_prompt = "Answer the following question about {topic}: {question}"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    ```
+  </Step>
+
+  <Step title="Log the prompt template with your model">
+    ```python
+    with mlflow.start_run():
+        model_info = mlflow.openai.log_model(
+            model="gpt-4o-mini",
+            task=openai.chat.completions,
+            name="qa_model",
+            messages=messages,
+        )
+    ```
+  </Step>
+
+  <Step title="Use the template">
+    ```python
+    import pandas as pd
+
+    # Load model with embedded prompt
+    model = mlflow.pyfunc.load_model(model_info.model_uri)
+
+    # Provide variable values
+    inputs = pd.DataFrame({
+        "role": ["technical", "technical"],
+        "topic": ["Python", "MLflow"],
+        "question": [
+            "What are decorators?",
+            "How do I log a model?"
+        ]
+    })
+
+    predictions = model.predict(inputs)
+    print(predictions)
+    ```
+  </Step>
+</Steps>
+
+### Multi-Turn Conversation Templates
+
+For chat applications with conversation history:
+
+```python
+import mlflow
+import openai
+
+with mlflow.start_run():
+    # Multi-turn template
+    messages = [
+        {"role": "system", "content": "You are {person}"},
+        {"role": "user", "content": "Let me hear your thoughts on {topic}"},
+    ]
+    
+    model_info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="persona_chat",
+        messages=messages,
+    )
+
+# Use with different personas and topics
+model = mlflow.pyfunc.load_model(model_info.model_uri)
+
+inputs = [
+    {"person": "Elon Musk", "topic": "AI safety"},
+    {"person": "Marie Curie", "topic": "scientific discovery"},
+]
+
+responses = model.predict(inputs)
+for inp, resp in zip(inputs, responses):
+    print(f"{inp['person']} on {inp['topic']}: {resp}")
+```
+
+## Prompt Engineering Workflow
+
+### 1. Experimentation
+
+Test multiple prompt variations:
+
+```python
+import mlflow
+import openai
+
+prompt_variations = [
+    {
+        "name": "concise",
+        "system": "You are a helpful assistant. Be concise.",
+        "template": "Answer in one sentence: {question}"
+    },
+    {
+        "name": "detailed",
+        "system": "You are a helpful assistant. Be thorough.",
+        "template": "Provide a detailed answer to: {question}"
+    },
+    {
+        "name": "structured",
+        "system": "You are a helpful assistant. Use bullet points.",
+        "template": "Answer with bullet points: {question}"
+    },
+]
+
+# Test each variation
+for variation in prompt_variations:
+    with mlflow.start_run(run_name=f"prompt_{variation['name']}"):
+        messages = [
+            {"role": "system", "content": variation["system"]},
+            {"role": "user", "content": variation["template"]},
+        ]
+        
+        model_info = mlflow.openai.log_model(
+            model="gpt-4o-mini",
+            task=openai.chat.completions,
+            name="model",
+            messages=messages,
+        )
+        
+        # Log prompt metadata
+        mlflow.log_param("prompt_style", variation["name"])
+        mlflow.log_param("system_prompt", variation["system"])
+```
+
+### 2. Evaluation
+
+Evaluate prompt variations systematically:
+
+```python
+import mlflow
+import pandas as pd
+
+# Evaluation dataset
+eval_df = pd.DataFrame({
+    "question": [
+        "What is MLflow?",
+        "How do I track experiments?",
+        "What's the difference between runs and experiments?",
+    ],
+    "ground_truth": [
+        "MLflow is an open-source platform for the ML lifecycle.",
+        "Use mlflow.start_run() and mlflow.log_*() functions.",
+        "Experiments contain multiple runs; runs are individual executions.",
+    ],
+})
+
+# Compare prompts
+results = {}
+
+for variation in prompt_variations:
+    # Load model for this prompt variation
+    model_uri = f"runs:/{run_ids[variation['name']]}/model"
+    
+    # Evaluate
+    eval_results = mlflow.evaluate(
+        model_uri,
+        eval_df,
+        targets="ground_truth",
+        model_type="question-answering",
+    )
+    
+    results[variation["name"]] = eval_results.metrics
+
+# Compare results
+for prompt_name, metrics in results.items():
+    print(f"{prompt_name}: {metrics}")
+```
+
+### 3. Optimization
+
+Iteratively improve prompts based on evaluation:
+
+```python
+import mlflow
+import openai
+
+def optimize_prompt(base_prompt, eval_df, iterations=5):
+    """Iteratively improve prompt based on evaluation"""
+    
+    current_prompt = base_prompt
+    best_score = 0
+    
+    for i in range(iterations):
+        with mlflow.start_run(run_name=f"optimization_iter_{i}"):
+            # Log current prompt
+            model_info = mlflow.openai.log_model(
+                model="gpt-4o-mini",
+                task=openai.chat.completions,
+                name="model",
+                messages=[{"role": "user", "content": current_prompt}],
+            )
+            
+            # Evaluate
+            results = mlflow.evaluate(
+                model_info.model_uri,
+                eval_df,
+                targets="ground_truth",
+                model_type="question-answering",
+            )
+            
+            # Check if improved
+            score = results.metrics.get("exact_match/v1", 0)
+            if score > best_score:
+                best_score = score
+                mlflow.log_param("is_best", True)
+            
+            # Modify prompt for next iteration
+            # (In practice, use insights from evaluation)
+            current_prompt = refine_prompt(current_prompt, results)
+    
+    return current_prompt
+
+# Run optimization
+optimized_prompt = optimize_prompt(
+    "Answer the question: {question}",
+    eval_df
+)
+```
+
+## Advanced Prompt Techniques
+
+### Few-Shot Learning
+
+Provide examples in your prompt:
+
+```python
+import mlflow
+import openai
+
+few_shot_system = """You are a sentiment classifier. Classify text as positive, negative, or neutral.
+
+Examples:
+Text: "I love this product!"
+Sentiment: positive
+
+Text: "This is terrible."
+Sentiment: negative
+
+Text: "It's okay."
+Sentiment: neutral
+"""
+
+with mlflow.start_run():
+    model_info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="sentiment_classifier",
+        messages=[
+            {"role": "system", "content": few_shot_system},
+            {"role": "user", "content": "Text: {text}\nSentiment:"},
+        ],
+    )
+
+# Use the few-shot model
+model = mlflow.pyfunc.load_model(model_info.model_uri)
+result = model.predict([{"text": "This is amazing!"}])
+print(result)
+```
+
+### Chain-of-Thought Prompting
+
+Encourage step-by-step reasoning:
+
+```python
+import mlflow
+import openai
+
+cot_prompt = """Solve this problem step by step:
+
+Problem: {problem}
+
+Let's approach this systematically:
+1. First, identify what we know
+2. Then, determine what we need to find
+3. Finally, solve step by step
+
+Solution:"""
+
+with mlflow.start_run():
+    model_info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="math_solver",
+        messages=[{"role": "user", "content": cot_prompt}],
+    )
+
+model = mlflow.pyfunc.load_model(model_info.model_uri)
+result = model.predict([{
+    "problem": "If a train travels 120 miles in 2 hours, what is its average speed?"
+}])
+print(result)
+```
+
+### Constrained Generation
+
+Control output format:
+
+```python
+import mlflow
+import openai
+
+structured_prompt = """Extract information and respond in JSON format.
+
+Text: {text}
+
+Extract:
+- sentiment (positive/negative/neutral)
+- key_entities (list of important nouns)
+- summary (one sentence)
+
+Respond only with valid JSON:"""
+
+with mlflow.start_run():
+    model_info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="structured_extractor",
+        messages=[{"role": "user", "content": structured_prompt}],
+    )
+```
+
+## Prompt Versioning
+
+Track prompt evolution over time:
+
+```python
+import mlflow
+import openai
+from datetime import datetime
+
+def deploy_prompt_version(prompt_text, version, description):
+    """Version and deploy a prompt"""
+    with mlflow.start_run(run_name=f"prompt_v{version}"):
+        model_info = mlflow.openai.log_model(
+            model="gpt-4o-mini",
+            task=openai.chat.completions,
+            name="model",
+            messages=[{"role": "user", "content": prompt_text}],
+            registered_model_name="production_prompt",
+        )
+        
+        # Log version metadata
+        mlflow.log_param("prompt_version", version)
+        mlflow.log_param("description", description)
+        mlflow.log_param("deployed_at", datetime.now().isoformat())
+        mlflow.set_tag("stage", "production")
+        
+        return model_info
+
+# Deploy versions
+v1 = deploy_prompt_version(
+    "Answer: {question}",
+    "1.0",
+    "Initial basic prompt"
+)
+
+v2 = deploy_prompt_version(
+    "Provide a clear and concise answer: {question}",
+    "2.0",
+    "Added clarity instruction"
+)
+
+v3 = deploy_prompt_version(
+    "As an expert, provide a clear and accurate answer: {question}",
+    "3.0",
+    "Added expert persona"
+)
+```
+
+## Prompt Libraries
+
+Create reusable prompt templates:
+
+```python
+import mlflow
+import openai
+
+class PromptLibrary:
+    """Centralized prompt template library"""
+    
+    @staticmethod
+    def qa_prompt():
+        return [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Answer: {question}"},
+        ]
+    
+    @staticmethod
+    def summarization_prompt():
+        return [
+            {"role": "system", "content": "You are a summarization expert."},
+            {"role": "user", "content": "Summarize in 2-3 sentences: {text}"},
+        ]
+    
+    @staticmethod
+    def code_review_prompt():
+        return [
+            {"role": "system", "content": "You are an expert code reviewer."},
+            {"role": "user", "content": "Review this code and suggest improvements:\n{code}"},
+        ]
+
+# Use from library
+with mlflow.start_run():
+    model_info = mlflow.openai.log_model(
+        model="gpt-4o-mini",
+        task=openai.chat.completions,
+        name="qa_model",
+        messages=PromptLibrary.qa_prompt(),
+    )
+```
+
+## A/B Testing Prompts in Production
+
+Test prompts with real users:
+
+```python
+import mlflow
+import random
+
+class PromptABTest:
+    def __init__(self, prompt_a_uri, prompt_b_uri, split=0.5):
+        self.model_a = mlflow.pyfunc.load_model(prompt_a_uri)
+        self.model_b = mlflow.pyfunc.load_model(prompt_b_uri)
+        self.split = split
+    
+    def predict(self, input_data):
+        # Randomly assign to variant
+        use_a = random.random() < self.split
+        
+        with mlflow.start_run():
+            variant = "A" if use_a else "B"
+            mlflow.log_param("ab_variant", variant)
+            
+            model = self.model_a if use_a else self.model_b
+            result = model.predict(input_data)
+            
+            # Log for analysis
+            mlflow.log_param("input", str(input_data))
+            mlflow.log_param("output", str(result))
+            
+            return result, variant
+
+# Use A/B test
+ab_test = PromptABTest(
+    "models:/production_prompt/1",  # Version 1
+    "models:/production_prompt/2",  # Version 2
+    split=0.5  # 50/50 split
+)
+
+result, variant = ab_test.predict([{"question": "What is MLflow?"}])
+print(f"Used variant {variant}: {result}")
+```
+
+## Best Practices
+
+### 1. Start Simple
+Begin with basic prompts and add complexity only when needed.
+
+### 2. Be Specific
+```python
+# Bad
+"Tell me about {topic}"
+
+# Good
+"Provide a 3-paragraph explanation of {topic}, including: 1) definition, 2) key use cases, 3) benefits and limitations"
+```
+
+### 3. Provide Context
+```python
+# Bad
+"Answer: {question}"
+
+# Good
+"You are an expert {domain} assistant. Answer the following question for a {audience_level} audience: {question}"
+```
+
+### 4. Use Examples
+Few-shot examples dramatically improve quality for specific tasks.
+
+### 5. Test Systematically
+Always evaluate prompts with a consistent dataset before deployment.
+
+### 6. Version Everything
+Track all prompt changes with clear descriptions.
+
+### 7. Monitor in Production
+Log prompt versions and track performance metrics.
+
+## Prompt Engineering Checklist
+
+- [ ] Define clear objectives for your prompt
+- [ ] Start with a simple baseline prompt
+- [ ] Create an evaluation dataset
+- [ ] Test multiple variations
+- [ ] Use few-shot examples where applicable
+- [ ] Specify output format constraints
+- [ ] Add role/persona if needed
+- [ ] Version and log all prompts in MLflow
+- [ ] Evaluate before deployment
+- [ ] Monitor performance in production
+- [ ] Iterate based on real usage
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluate Prompts" href="/guides/llm/evaluate-llm-apps" icon="chart-line">
+    Systematically evaluate prompt quality
+  </Card>
+  <Card title="Tracing" href="/guides/llm/tracing-quickstart" icon="timeline">
+    Debug prompt performance with tracing
+  </Card>
+  <Card title="Model Registry" href="/model-registry" icon="database">
+    Deploy prompts via Model Registry
+  </Card>
+  <Card title="OpenAI Integration" href="/llms/openai" icon="code">
+    OpenAI-specific features
+  </Card>
+</CardGroup>

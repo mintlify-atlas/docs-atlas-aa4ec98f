@@ -1,0 +1,303 @@
+---
+title: LangChain
+description: MLflow integration for LangChain models
+---
+
+The `mlflow.langchain` module provides an API for logging and loading LangChain models. This integration supports Chains, Agents, Retrievers, and LCEL RunnableSequences.
+
+## Installation
+
+```bash
+pip install mlflow[langchain]
+```
+
+## Autologging
+
+### mlflow.langchain.autolog()
+
+Enables (or disables) and configures autologging from LangChain to MLflow.
+
+<ParamField path="disable" type="bool" default="False">
+  If `True`, disables the LangChain autologging integration. If `False`, enables the LangChain autologging integration.
+</ParamField>
+
+<ParamField path="exclusive" type="bool" default="False">
+  If `True`, autologged content is not logged to user-created fluent runs. If `False`, autologged content is logged to the active fluent run, which may be user-created.
+</ParamField>
+
+<ParamField path="disable_for_unsupported_versions" type="bool" default="False">
+  If `True`, disable autologging for versions of LangChain that have not been tested against this version of the MLflow client or are incompatible.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  If `True`, suppress all event logs and warnings from MLflow during LangChain autologging. If `False`, show all events and warnings during LangChain autologging.
+</ParamField>
+
+<ParamField path="log_traces" type="bool" default="True">
+  If `True`, traces are logged for LangChain models by using MlflowLangchainTracer as a callback during inference. If `False`, no traces are collected during inference.
+</ParamField>
+
+<ParamField path="run_tracer_inline" type="bool" default="False">
+  If `True`, the MLflow tracer callback runs in the main async task rather than being offloaded to a thread pool. This ensures proper context propagation when combining autolog traces with manual `@mlflow.trace` decorators in async scenarios (e.g., LangGraph's `ainvoke`). Set to `True` if you use manual `@mlflow.trace` decorators within LangGraph nodes or tools and need them properly nested in the autolog trace.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+
+# Enable autologging
+mlflow.langchain.autolog()
+```
+
+## Model Logging
+
+### mlflow.langchain.log_model()
+
+Log a LangChain model as an MLflow artifact for the current run.
+
+<ParamField path="lc_model" type="Chain | Agent | Retriever | RunnableSequence | str" required>
+  A LangChain model, which could be a Chain, Agent, Retriever, or RunnableSequence. Can also be a path containing the LangChain model code. When using model as path, make sure to set the model by using `mlflow.models.set_model()`.
+</ParamField>
+
+<ParamField path="name" type="str">
+  The name to use for logging the model artifact.
+</ParamField>
+
+<ParamField path="artifact_path" type="str">
+  Deprecated. Use `name` instead.
+</ParamField>
+
+<ParamField path="conda_env" type="str | dict">
+  Either a dictionary representation of a Conda environment or the path to a conda environment yaml file.
+</ParamField>
+
+<ParamField path="code_paths" type="list[str]">
+  A list of local filesystem paths to Python file dependencies (or directories containing file dependencies).
+</ParamField>
+
+<ParamField path="registered_model_name" type="str">
+  If given, create a model version under `registered_model_name`, also creating a registered model if one with the given name does not exist.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  A ModelSignature object that describes model input and output schema. If not specified, the model signature would be set according to `lc_model.input_keys` and `lc_model.output_keys`.
+</ParamField>
+
+<ParamField path="input_example" type="pd.DataFrame | np.ndarray | dict | list">
+  Input example provides one or several instances of valid model input.
+</ParamField>
+
+<ParamField path="await_registration_for" type="int" default="300">
+  Number of seconds to wait for the model version to finish being created and is in READY status. By default, the function waits for five minutes. Specify 0 or None to skip waiting.
+</ParamField>
+
+<ParamField path="pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="extra_pip_requirements" type="str | list[str]">
+  Either an iterable of pip requirement strings to add to the model requirements, or the string path to a pip requirements file.
+</ParamField>
+
+<ParamField path="metadata" type="dict">
+  Custom metadata dictionary passed to the model and stored in the MLmodel file.
+</ParamField>
+
+<ParamField path="loader_fn" type="callable">
+  A function that's required for models containing objects that aren't natively serialized by LangChain. This function takes a string `persist_dir` as an argument and returns the specific object that the model needs (e.g., retriever, vectorstore, embeddings).
+</ParamField>
+
+<ParamField path="persist_dir" type="str">
+  The directory where the object is stored. The `loader_fn` takes this string as the argument to load the object. MLflow logs the content in this directory as artifacts in the subdirectory named `persist_dir_data`.
+</ParamField>
+
+<ParamField path="run_id" type="str">
+  Run ID to associate with this model version. If specified, we resume the run and log the model to that run. Otherwise, a new run is created.
+</ParamField>
+
+<ParamField path="model_config" type="dict[str, Any]">
+  The model configuration to apply when loading the model back. This configuration is available during model loading.
+</ParamField>
+
+<ParamField path="streamable" type="bool">
+  A boolean value indicating if the model supports streaming prediction. If `True`, the model must implement `stream` method. If `None`, streamable is set to `True` if the model implements `stream` method.
+</ParamField>
+
+<ParamField path="resources" type="list[Resource] | str">
+  A list of model resources or a resources.yaml file containing a list of resources required to serve the model. If logging a LangChain model with dependencies (e.g. on LLM model serving endpoints), we encourage explicitly passing dependencies via this parameter.
+</ParamField>
+
+<ParamField path="prompts" type="list[str | Prompt]">
+  A list of prompts to associate with the model.
+</ParamField>
+
+<ParamField path="params" type="dict[str, Any]">
+  Additional parameters to associate with the model.
+</ParamField>
+
+<ParamField path="tags" type="dict[str, Any]">
+  Tags to associate with the model.
+</ParamField>
+
+<ParamField path="model_type" type="str">
+  The type of the model.
+</ParamField>
+
+<ParamField path="step" type="int" default="0">
+  The training step at which the model was logged.
+</ParamField>
+
+<ParamField path="model_id" type="str">
+  A unique identifier for the model.
+</ParamField>
+
+**Returns:** A `ModelInfo` instance that contains the metadata of the logged model.
+
+**Example (Basic Chain):**
+
+```python
+import mlflow
+from langchain.llms import OpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+
+prompt = PromptTemplate(
+    input_variables=["product"],
+    template="What is a good name for a company that makes {product}?",
+)
+
+chain = LLMChain(llm=OpenAI(temperature=0.9), prompt=prompt)
+
+with mlflow.start_run():
+    info = mlflow.langchain.log_model(chain, name="chain")
+```
+
+**Example (RetrievalQA with loader_fn):**
+
+```python
+import mlflow
+from langchain.chains import RetrievalQA
+from langchain.llms import OpenAI
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
+
+qa = RetrievalQA.from_llm(llm=OpenAI(), retriever=db.as_retriever())
+
+def load_retriever(persist_directory):
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.load_local(
+        persist_directory,
+        embeddings,
+        allow_dangerous_deserialization=True,  # Required for langchain_community >= 0.0.27
+    )
+    return vectorstore.as_retriever()
+
+with mlflow.start_run():
+    logged_model = mlflow.langchain.log_model(
+        qa,
+        name="retrieval_qa",
+        loader_fn=load_retriever,
+        persist_dir=persist_dir,
+    )
+```
+
+### mlflow.langchain.save_model()
+
+Save a LangChain model to a path on the local file system.
+
+Accepts the same parameters as `log_model()`, with `path` instead of `name`:
+
+<ParamField path="path" type="str" required>
+  Local path where the serialized model is to be saved.
+</ParamField>
+
+**Example:**
+
+```python
+import mlflow
+from langchain.llms import OpenAI
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+
+prompt = PromptTemplate(
+    input_variables=["product"],
+    template="What is a good name for a company that makes {product}?",
+)
+
+chain = LLMChain(llm=OpenAI(temperature=0.9), prompt=prompt)
+
+mlflow.langchain.save_model(chain, path="model")
+```
+
+## Model Loading
+
+### mlflow.langchain.load_model()
+
+Load a LangChain model from a local file or a run.
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes include:
+  - `/Users/me/path/to/local/model`
+  - `relative/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+</ParamField>
+
+<ParamField path="dst_path" type="str">
+  The local filesystem path to which to download the model artifact. This directory must already exist. If unspecified, a local output path will be created.
+</ParamField>
+
+**Returns:** A LangChain model instance.
+
+**Example:**
+
+```python
+import mlflow
+
+chain = mlflow.langchain.load_model("runs:/abc123/model")
+result = chain.run("ice cream")
+print(result)
+```
+
+## Supported Model Types
+
+The LangChain integration supports the following model types:
+
+- **Chains** - LLMChain, RetrievalQA, SQLDatabaseChain, etc.
+- **Agents** - Agent executors and custom agents
+- **Retrievers** - Vector store retrievers and custom retrievers
+- **RunnableSequences** - LCEL chains
+
+## Models-from-Code
+
+<Note>
+LangChain v1 onwards only supports models-from-code. For more information, see the [Models From Code documentation](https://mlflow.org/docs/latest/ml/model/models-from-code/#examples-and-patterns).
+</Note>
+
+When using models-from-code, pass the path to a Python file containing your LangChain model definition:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    info = mlflow.langchain.log_model(
+        "chain.py",  # Path to your model code
+        name="chain",
+        model_config={"temperature": 0.9},
+    )
+```
+
+## Streaming Support
+
+LangChain models that implement the `stream` method can be loaded with streaming support enabled:
+
+```python
+import mlflow
+
+model = mlflow.pyfunc.load_model("runs:/abc123/model")
+
+# Stream predictions
+for chunk in model.predict_stream({"query": "Tell me a story"}):
+    print(chunk, end="")
+```

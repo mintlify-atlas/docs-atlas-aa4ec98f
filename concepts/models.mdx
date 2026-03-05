@@ -1,0 +1,595 @@
+---
+title: Models
+description: Learn about MLflow Models for packaging and deploying machine learning models
+---
+
+## What is an MLflow Model?
+
+An MLflow Model is a standard format for packaging machine learning models that can be used in a variety of downstream tools. The format defines a convention for saving models in different "flavors" that can be understood by different deployment tools.
+
+Each MLflow Model is a directory containing:
+- An `MLmodel` file that defines the model's flavors and metadata
+- Model artifacts (the actual model files)
+- Dependency specifications (conda.yaml, requirements.txt, python_env.yaml)
+- Optional input examples and signatures
+
+Reference: `/home/daytona/workspace/source/mlflow/models/model.py:68-92`
+
+## Model Flavors
+
+MLflow Models support multiple "flavors" - different ways the model can be interpreted and used. Built-in flavors include:
+
+- `python_function` (pyfunc) - Generic Python function interface
+- `sklearn` - Scikit-learn models
+- `pytorch` - PyTorch models
+- `tensorflow` - TensorFlow models
+- `keras` - Keras models
+- `xgboost` - XGBoost models
+- `lightgbm` - LightGBM models
+- `transformers` - Hugging Face Transformers
+- `langchain` - LangChain chains and agents
+- `openai` - OpenAI models
+- And many more...
+
+Reference: `/home/daytona/workspace/source/mlflow/models/__init__.py:7-27`
+
+## Logging Models
+
+### Basic Model Logging
+
+Each flavor provides a `log_model()` function:
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+
+# Train a model
+model = RandomForestClassifier(n_estimators=100)
+model.fit(X_train, y_train)
+
+# Log the model
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        input_example=X_train[:5],
+        registered_model_name="random-forest-classifier"
+    )
+```
+
+### Model Signature
+
+Signatures define the expected input and output schema:
+
+```python
+import mlflow
+from mlflow.models import infer_signature
+import pandas as pd
+
+# Infer signature from data
+predictions = model.predict(X_train)
+signature = infer_signature(X_train, predictions)
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        signature=signature
+    )
+```
+
+<Warning>
+Models logged to Databricks Unity Catalog require signatures. Set `input_example` to auto-infer signatures.
+</Warning>
+
+Reference: `/home/daytona/workspace/source/mlflow/models/model.py:76-83`
+
+### Input Examples
+
+Provide example inputs for documentation and testing:
+
+```python
+import mlflow
+import pandas as pd
+
+input_example = pd.DataFrame({
+    "feature1": [1.0, 2.0, 3.0],
+    "feature2": [4.0, 5.0, 6.0]
+})
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        input_example=input_example
+    )
+```
+
+## PyFunc - Universal Model Interface
+
+The `pyfunc` flavor provides a universal interface that all MLflow models implement:
+
+```python
+import mlflow.pyfunc
+
+# Load any model as pyfunc
+model = mlflow.pyfunc.load_model("runs:/abc123/model")
+
+# Predict with various input types
+import pandas as pd
+import numpy as np
+
+# Pandas DataFrame
+df_input = pd.DataFrame({"x1": [1, 2], "x2": [3, 4]})
+predictions = model.predict(df_input)
+
+# NumPy array
+np_input = np.array([[1, 3], [2, 4]])
+predictions = model.predict(np_input)
+
+# Python dict
+dict_input = {"x1": [1, 2], "x2": [3, 4]}
+predictions = model.predict(dict_input)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/pyfunc/__init__.py:1-100`
+
+## Custom PyFunc Models
+
+Create custom models by implementing the `PythonModel` interface:
+
+```python
+import mlflow
+from mlflow.pyfunc import PythonModel
+
+class CustomModel(PythonModel):
+    def load_context(self, context):
+        """Load model artifacts."""
+        import joblib
+        self.model = joblib.load(context.artifacts["model_path"])
+    
+    def predict(self, context, model_input):
+        """Generate predictions."""
+        return self.model.predict(model_input)
+
+# Log custom model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="custom_model",
+        python_model=CustomModel(),
+        artifacts={"model_path": "path/to/model.pkl"},
+        conda_env="conda.yaml"
+    )
+```
+
+## Loading Models
+
+### Load from Runs
+
+```python
+import mlflow
+
+# Load using runs URI
+model = mlflow.sklearn.load_model("runs:/abc123def456/model")
+
+# Or using pyfunc for universal interface
+model = mlflow.pyfunc.load_model("runs:/abc123def456/model")
+```
+
+### Load from Model Registry
+
+```python
+import mlflow
+
+# Load by version
+model = mlflow.pyfunc.load_model("models:/my-model/1")
+
+# Load by stage
+model = mlflow.pyfunc.load_model("models:/my-model/Production")
+
+# Load by alias
+model = mlflow.pyfunc.load_model("models:/my-model@champion")
+```
+
+### Load from Local Path
+
+```python
+import mlflow
+
+# Load from local directory
+model = mlflow.pyfunc.load_model("/path/to/model")
+```
+
+## Model Metadata - ModelInfo
+
+When logging a model, MLflow returns a `ModelInfo` object with metadata:
+
+```python
+import mlflow
+
+with mlflow.start_run() as run:
+    model_info = mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model"
+    )
+    
+    print(f"Model URI: {model_info.model_uri}")
+    print(f"Run ID: {model_info.run_id}")
+    print(f"Artifact path: {model_info.artifact_path}")
+    print(f"Flavors: {model_info.flavors}")
+    print(f"Model UUID: {model_info.model_uuid}")
+    print(f"Signature: {model_info.signature}")
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/models/model.py:106-141`
+
+## Model Configuration
+
+Pass configuration to models at inference time:
+
+```python
+import mlflow
+from mlflow.models import ModelConfig
+
+# Define configuration
+config = ModelConfig(
+    development_config={
+        "temperature": 0.7,
+        "max_tokens": 100
+    }
+)
+
+# Use in custom models
+class ConfigurableModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        temperature = params.get("temperature", 0.5) if params else 0.5
+        return self.model.generate(model_input, temperature=temperature)
+```
+
+## Logged Models API
+
+MLflow 2.x introduces the Logged Models API for managing models during training:
+
+### Initialize Logged Model
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Initialize a model that will be logged incrementally
+    logged_model = mlflow.initialize_logged_model(
+        artifact_path="model",
+        model_type="pytorch"
+    )
+    
+    # Train and log checkpoints
+    for epoch in range(100):
+        train_epoch()
+        
+        # Update model periodically
+        if epoch % 10 == 0:
+            save_checkpoint(f"checkpoint-{epoch}.pt")
+            mlflow.log_artifact(f"checkpoint-{epoch}.pt", "checkpoints")
+    
+    # Finalize the model
+    mlflow.pytorch.log_model(
+        pytorch_model=final_model,
+        artifact_path="model"
+    )
+    mlflow.finalize_logged_model(logged_model)
+```
+
+### Get Logged Model Info
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    model_info = mlflow.sklearn.log_model(model, "model")
+    
+    # Later in the same run
+    logged_model = mlflow.get_logged_model(model_info.model_id)
+    print(f"Model status: {logged_model.status}")
+```
+
+## Model Dependencies
+
+### Automatic Dependency Inference
+
+MLflow automatically infers and logs dependencies:
+
+```python
+import mlflow
+
+# Dependencies are automatically captured
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model"
+        # Creates conda.yaml, requirements.txt, python_env.yaml automatically
+    )
+```
+
+### Custom Dependencies
+
+```python
+import mlflow
+
+# Specify custom conda environment
+conda_env = {
+    "channels": ["defaults", "conda-forge"],
+    "dependencies": [
+        f"python={python_version}",
+        "pip",
+        {
+            "pip": [
+                "mlflow",
+                "scikit-learn==1.3.0",
+                "pandas==2.0.0"
+            ]
+        }
+    ]
+}
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        conda_env=conda_env
+    )
+```
+
+## Model Registry Integration
+
+### Register Model During Logging
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        registered_model_name="my-sklearn-model"
+    )
+```
+
+### Register After Logging
+
+```python
+import mlflow
+
+# Log model
+with mlflow.start_run() as run:
+    mlflow.sklearn.log_model(model, "model")
+
+# Register separately
+model_uri = f"runs:/{run.info.run_id}/model"
+mlflow.register_model(model_uri, "my-sklearn-model")
+```
+
+## Model Deployment
+
+### Local Serving
+
+```bash
+# Serve model locally
+mlflow models serve -m runs:/abc123/model -p 5000
+
+# Test the endpoint
+curl -X POST http://localhost:5000/invocations \
+  -H 'Content-Type: application/json' \
+  -d '{"inputs": [[1, 2, 3, 4]]}'
+```
+
+### Build Docker Image
+
+```python
+import mlflow
+
+# Build a Docker image for the model
+mlflow.models.build_docker(
+    model_uri="models:/my-model/Production",
+    name="my-model-image",
+    env_manager="conda"
+)
+```
+
+### Predict from Python
+
+```python
+from mlflow.models import predict
+import pandas as pd
+
+data = pd.DataFrame({
+    "feature1": [1, 2, 3],
+    "feature2": [4, 5, 6]
+})
+
+predictions = predict(
+    model_uri="models:/my-model/Production",
+    data=data
+)
+```
+
+## Model Resources
+
+Define external resources required by models:
+
+```python
+import mlflow
+from mlflow.models.resources import Resource, ResourceType
+
+# Define resources
+resources = [
+    Resource(
+        type=ResourceType.DATABRICKS_SERVING_ENDPOINT,
+        config={"endpoint_name": "embeddings-endpoint"}
+    )
+]
+
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=CustomModel(),
+        resources=resources
+    )
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/models/resources.py:24`
+
+## External Models
+
+Register models that exist outside MLflow:
+
+```python
+import mlflow
+
+# Create external model reference
+external_model = mlflow.create_external_model(
+    name="external-api-model",
+    tags={
+        "model_type": "api",
+        "endpoint": "https://api.example.com/predict"
+    },
+    description="External prediction API"
+)
+```
+
+Reference: `/home/daytona/workspace/source/mlflow/utils/mlflow_tags.py:80`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Include Signatures">
+    Model signatures validate inputs and document expected schemas. Use `input_example` for automatic inference:
+    
+    ```python
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        input_example=X_train[:5]  # Auto-infers signature
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Input Examples">
+    Input examples serve as documentation and test cases:
+    
+    ```python
+    input_example = pd.DataFrame({
+        "age": [25, 30, 35],
+        "income": [50000, 60000, 70000]
+    })
+    
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        input_example=input_example
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Version Your Dependencies">
+    Pin dependency versions for reproducibility:
+    
+    ```python
+    pip_requirements = [
+        "scikit-learn==1.3.0",
+        "pandas==2.0.0",
+        "numpy==1.24.0"
+    ]
+    
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        pip_requirements=pip_requirements
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Meaningful Artifact Paths">
+    Organize models with clear artifact paths:
+    
+    ```python
+    # Good: descriptive paths
+    mlflow.sklearn.log_model(model, "models/random_forest")
+    mlflow.pytorch.log_model(model, "models/resnet50")
+    
+    # Avoid: generic paths
+    mlflow.sklearn.log_model(model, "model")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+<CodeGroup>
+```python Scikit-learn Model
+import mlflow
+import mlflow.sklearn
+from sklearn.ensemble import RandomForestClassifier
+
+model = RandomForestClassifier()
+model.fit(X_train, y_train)
+
+with mlflow.start_run():
+    mlflow.sklearn.log_model(
+        sk_model=model,
+        artifact_path="model",
+        input_example=X_train[:5],
+        registered_model_name="rf-classifier"
+    )
+```
+
+```python PyTorch Model
+import mlflow
+import mlflow.pytorch
+import torch
+
+model = MyNeuralNetwork()
+train_model(model)
+
+with mlflow.start_run():
+    mlflow.pytorch.log_model(
+        pytorch_model=model,
+        artifact_path="model",
+        input_example=torch.randn(1, 10),
+        registered_model_name="neural-net"
+    )
+```
+
+```python Custom PyFunc
+import mlflow
+from mlflow.pyfunc import PythonModel
+
+class MyModel(PythonModel):
+    def predict(self, context, model_input):
+        return model_input * 2
+
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=MyModel(),
+        registered_model_name="custom-model"
+    )
+```
+</CodeGroup>
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="Runs" icon="play" href="./runs">
+    Log models within runs
+  </Card>
+  <Card title="Artifacts" icon="file" href="./artifacts">
+    Understand artifact storage
+  </Card>
+  <Card title="Tracking" icon="chart-mixed" href="./tracking">
+    Track model training
+  </Card>
+  <Card title="Experiments" icon="flask" href="./experiments">
+    Organize model experiments
+  </Card>
+</CardGroup>

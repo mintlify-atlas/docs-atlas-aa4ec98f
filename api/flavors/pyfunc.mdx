@@ -1,0 +1,319 @@
+---
+title: mlflow.pyfunc
+description: API reference for MLflow's Python Function (PyFunc) flavor
+---
+
+The `mlflow.pyfunc` module defines a generic filesystem format for Python models and provides utilities for saving to and loading from this format. The format is self-contained, including all necessary information for anyone to load and use it.
+
+## Inference API
+
+Python function models are loaded as instances of `PyFuncModel`, which is an MLflow wrapper around the model implementation. You can score the model by calling the `predict()` method.
+
+### Supported Input Types
+
+- `pandas.DataFrame`
+- `numpy.ndarray`
+- `scipy.sparse.csc_matrix` or `scipy.sparse.csr_matrix`
+- `List[Any]`
+- `Dict[str, Any]`
+- `pyspark.sql.DataFrame`
+
+## Model Classes
+
+### PythonModel
+
+Base class for creating custom PyFunc models.
+
+```python
+class mlflow.pyfunc.PythonModel:
+    def load_context(self, context):
+        """Load artifacts from context."""
+        pass
+    
+    def predict(self, context, model_input, params=None):
+        """Generate predictions."""
+        pass
+```
+
+<ParamField path="context" type="PythonModelContext">
+  A context object containing artifacts that the model can use for inference.
+</ParamField>
+
+<ParamField path="model_input" type="pd.DataFrame | np.ndarray | dict | list">
+  Input data for model inference.
+</ParamField>
+
+<ParamField path="params" type="dict">
+  Additional parameters to pass to the model for inference.
+</ParamField>
+
+### ChatModel
+
+Base class for creating chat models.
+
+```python
+class mlflow.pyfunc.ChatModel:
+    def predict(self, context, messages, params=None):
+        """Generate chat completions."""
+        pass
+```
+
+## Saving Models
+
+### save_model()
+
+Save a pyfunc model to a path on the local filesystem.
+
+```python
+mlflow.pyfunc.save_model(
+    path,
+    python_model=None,
+    artifacts=None,
+    conda_env=None,
+    code_paths=None,
+    mlflow_model=None,
+    signature=None,
+    input_example=None,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    loader_module=None,
+    data_path=None,
+    model_config=None,
+    streamable=None,
+    extra_files=None
+)
+```
+
+<ParamField path="path" type="str" required>
+  Local path where the model is to be saved.
+</ParamField>
+
+<ParamField path="python_model" type="PythonModel | function">
+  Instance of `PythonModel` or a function that performs prediction. The function should accept a single argument (model input).
+</ParamField>
+
+<ParamField path="artifacts" type="dict">
+  Dictionary of artifact URIs to include with the model. Format: `{"artifact_name": "artifact_uri"}`.
+</ParamField>
+
+<ParamField path="signature" type="ModelSignature">
+  Model signature describing inputs and outputs.
+</ParamField>
+
+<ParamField path="streamable" type="bool">
+  If True, the model supports streaming predictions via `predict_stream` method.
+</ParamField>
+
+### log_model()
+
+Log a pyfunc model as an MLflow artifact for the current run.
+
+```python
+mlflow.pyfunc.log_model(
+    artifact_path=None,
+    python_model=None,
+    artifacts=None,
+    conda_env=None,
+    code_paths=None,
+    registered_model_name=None,
+    signature=None,
+    input_example=None,
+    await_registration_for=300,
+    pip_requirements=None,
+    extra_pip_requirements=None,
+    metadata=None,
+    loader_module=None,
+    data_path=None,
+    model_config=None,
+    streamable=None,
+    extra_files=None,
+    name=None,
+    params=None,
+    tags=None,
+    model_type=None,
+    step=0,
+    model_id=None
+)
+```
+
+<ParamField path="name" type="str">
+  Name of the logged model.
+</ParamField>
+
+<ParamField path="python_model" type="PythonModel | function">
+  Instance of `PythonModel` or a prediction function.
+</ParamField>
+
+**Returns:** `ModelInfo` instance containing metadata of the logged model.
+
+## Loading Models
+
+### load_model()
+
+Load a model stored in Python function format.
+
+```python
+mlflow.pyfunc.load_model(
+    model_uri,
+    suppress_warnings=False,
+    dst_path=None,
+    model_config=None
+)
+```
+
+<ParamField path="model_uri" type="str" required>
+  The location, in URI format, of the MLflow model. Supported URI schemes:
+  - `/Users/me/path/to/local/model`
+  - `s3://my_bucket/path/to/model`
+  - `runs:/<mlflow_run_id>/run-relative/path/to/model`
+  - `models:/<model_name>/<model_version>`
+</ParamField>
+
+<ParamField path="model_config" type="str | Path | dict">
+  Model configuration to apply. Available as `context.model_config` in `PythonModel.load_context()` and `predict()`.
+</ParamField>
+
+**Returns:** `PyFuncModel` instance.
+
+## PyFuncModel Methods
+
+### predict()
+
+Generate model predictions.
+
+```python
+model.predict(
+    data,
+    params=None
+)
+```
+
+<ParamField path="data" type="pd.DataFrame | np.ndarray | dict | list">
+  Model input data.
+</ParamField>
+
+<ParamField path="params" type="dict">
+  Additional parameters for inference.
+</ParamField>
+
+**Returns:** Model predictions as `pandas.DataFrame`, `pandas.Series`, `numpy.ndarray`, or `list`.
+
+### predict_stream()
+
+Generate streaming model predictions (LLM models only).
+
+```python
+model.predict_stream(
+    data,
+    params=None
+)
+```
+
+**Returns:** Iterator of prediction chunks.
+
+### unwrap_python_model()
+
+Unwrap the underlying Python model object.
+
+```python
+model.unwrap_python_model()
+```
+
+**Returns:** The underlying wrapped model object.
+
+## Helper Functions
+
+### get_default_pip_requirements()
+
+Returns default pip requirements for PyFunc models.
+
+```python
+mlflow.pyfunc.get_default_pip_requirements()
+```
+
+### get_default_conda_env()
+
+Returns default Conda environment for PyFunc models.
+
+```python
+mlflow.pyfunc.get_default_conda_env()
+```
+
+## Example - Function-based Model
+
+```python
+import mlflow
+import pandas as pd
+
+# Define a simple function
+def predict(model_input):
+    return model_input.apply(lambda x: x * 2)
+
+# Save the function as a model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        name="model",
+        python_model=predict,
+        pip_requirements=["pandas"]
+    )
+    run_id = mlflow.active_run().info.run_id
+
+# Load and use the model
+model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+x_new = pd.Series([1, 2, 3])
+print(model.predict(x_new))
+```
+
+## Example - Class-based Model
+
+```python
+import mlflow
+import pandas as pd
+
+class MyModel(mlflow.pyfunc.PythonModel):
+    def predict(self, context, model_input, params=None):
+        return [x * 2 for x in model_input]
+
+# Save the model
+with mlflow.start_run():
+    mlflow.pyfunc.log_model(
+        name="model",
+        python_model=MyModel(),
+        pip_requirements=["pandas"]
+    )
+    run_id = mlflow.active_run().info.run_id
+
+# Load and use
+model = mlflow.pyfunc.load_model(f"runs:/{run_id}/model")
+x_new = pd.Series([1, 2, 3])
+print(model.predict(x_new))
+```
+
+## Example - Model with Artifacts
+
+```python
+import mlflow
+import pickle
+
+class ModelWithArtifacts(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        # Load artifacts
+        with open(context.artifacts["preprocessor"], "rb") as f:
+            self.preprocessor = pickle.load(f)
+    
+    def predict(self, context, model_input, params=None):
+        processed = self.preprocessor.transform(model_input)
+        return processed
+
+# Log model with artifacts
+with mlflow.start_run():
+    artifacts = {
+        "preprocessor": "/path/to/preprocessor.pkl"
+    }
+    mlflow.pyfunc.log_model(
+        name="model",
+        python_model=ModelWithArtifacts(),
+        artifacts=artifacts
+    )
+```
