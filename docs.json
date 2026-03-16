@@ -3,14 +3,24 @@
   "name": "MLflow",
   "theme": "aspen",
   "colors": {
-    "primary": "#196d97",
-    "light": "#e0eff2",
-    "dark": "#6b6a6a"
+    "primary": "#EB1701",
+    "light": "#EB1701",
+    "dark": "#EB1701"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.ico",
   "logo": {
-    "light": "https://media.brand.dev/69ced2dd-1078-43e0-a542-6421461b256b.svg",
-    "dark": "https://media.brand.dev/69ced2dd-1078-43e0-a542-6421461b256b.svg"
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "fonts": {
+    "heading": {
+      "family": "DM Sans",
+      "weight": 400
+    },
+    "body": {
+      "family": "DM Sans",
+      "weight": 400
+    }
   },
   "navbar": {
     "primary": {
@@ -28,15 +38,15 @@
   "navigation": {
     "tabs": [
       {
+        "tab": "Home",
+        "pages": ["index"]
+      },
+      {
         "tab": "Documentation",
         "groups": [
           {
             "group": "Get Started",
-            "pages": [
-              "introduction",
-              "quickstart",
-              "installation"
-            ]
+            "pages": ["introduction", "quickstart", "installation"]
           },
           {
             "group": "Core Concepts",
@@ -213,5 +223,10 @@
         ]
       }
     ]
+  },
+  "seo": {
+    "metatags": {
+      "robots": "noindex"
+    }
   }
 }

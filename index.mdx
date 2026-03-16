@@ -4,62 +4,77 @@ description: "Open-source platform for the complete machine learning lifecycle"
 mode: "custom"
 ---
 
-<div className="relative overflow-hidden bg-gradient-to-br from-[#0a0c11] via-[#0f1419] to-[#0a0c11] dark:from-[#0a0c11] dark:via-[#0f1419] dark:to-[#0a0c11] py-20 lg:py-24">
-  <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]"></div>
+<div className="relative overflow-hidden bg-[#08090d] dark:bg-[#08090d] py-20 lg:py-24">
+  <div
+    className="absolute left-0 top-0 w-full"
+    aria-hidden="true"
+    style={{
+      position: "absolute",
+      width: "100%",
+      top: "0px",
+      pointerEvents: "none",
+      maskComposite: "intersect",
+      height: "820px",
+      backgroundImage: `repeating-linear-gradient(
+          to right,
+          rgba(0, 0, 0, 0.05),
+          rgba(0, 0, 0, 0.25) 24px,
+          transparent 2px,
+          transparent 10px
+        ),
+        radial-gradient(
+          circle at top center,
+          var(--color-brand-red, #EB1701) 0%,
+          transparent 60%
+        ),
+        linear-gradient(
+          to right,
+          color-mix(
+            in srgb,
+            var(--color-brand-red, #EB1701),
+            oklch(0.33 0.15 328.37) 80%
+          ),
+          color-mix(
+            in srgb,
+            var(--color-brand-red, #EB1701),
+            oklch(0.66 0.17 248.82) 100%
+          )
+        )`,
+      maskImage: "linear-gradient(black 40%, transparent 90%)",
+    }}
+  />
   <div className="relative max-w-7xl mx-auto px-6 lg:px-8">
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-      <div className="lg:col-span-7">
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-100 dark:text-gray-100 mb-6">
+    <div className="mx-auto max-w-4xl text-center">
+      <div>
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
           Build AI with Confidence
         </h1>
-        <p className="text-lg sm:text-xl text-gray-400 dark:text-gray-400 max-w-2xl mb-8">
-          MLflow is the open-source platform for managing the end-to-end machine learning lifecycle. Track experiments, package models, and deploy to production with full observability for both traditional ML and GenAI applications.
+        <p className="text-lg sm:text-xl text-white/70 max-w-2xl mx-auto mb-8">
+          MLflow is the open-source platform for managing the end-to-end machine
+          learning lifecycle. Track experiments, package models, and deploy to
+          production with full observability for both traditional ML and GenAI
+          applications.
         </p>
-        <div className="flex flex-wrap gap-4">
-          <a 
-            href="/quickstart" 
-            className="inline-flex items-center px-6 py-3 rounded-lg bg-[#196d97] hover:bg-[#1a7aa8] text-white font-semibold transition-colors no-underline"
-          >
-            Get Started
-            <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </a>
-          <a 
-            href="/api/tracking-api" 
-            className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 dark:border-white/30 bg-white/10 dark:bg-white/10 hover:bg-white/20 dark:hover:bg-white/20 text-white font-semibold transition-colors no-underline"
-          >
-            API Reference
-          </a>
-        </div>
       </div>
-      <div className="lg:col-span-5 hidden lg:block">
-        <div className="relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-[#196d97]/20 to-[#e0eff2]/20 blur-3xl"></div>
-          <div className="relative bg-[#1a1d27] dark:bg-[#1a1d27] rounded-2xl border border-[#27272a] dark:border-[#27272a] p-6 shadow-2xl">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            </div>
-            <pre className="text-sm text-gray-300 dark:text-gray-300 overflow-x-auto">
-{`import mlflow
-
-mlflow.set_experiment("my-experiment")
-
-with mlflow.start_run():
-    mlflow.log_param("lr", 0.01)
-    mlflow.log_metric("accuracy", 0.95)
-    mlflow.sklearn.log_model(model, "model")`}
-            </pre>
-          </div>
-        </div>
+      <div className="flex flex-wrap justify-center gap-5">
+        <a
+          href="/quickstart"
+          className="inline-flex items-center justify-center rounded-[20px] bg-white px-6 py-3 text-lg font-semibold text-[#111111] transition-all duration-200 hover:bg-[#f3d6d2] no-underline"
+        >
+          Get Started
+        </a>
+        <a
+          href="/api/tracking-api"
+          className="inline-flex items-center justify-center rounded-[20px] border-2 border-white/90 bg-white/[0.04] px-6 py-3 text-lg font-semibold text-white transition-all duration-200 hover:bg-white/[0.10] hover:border-white no-underline"
+        >
+          API Reference
+        </a>
       </div>
     </div>
   </div>
 </div>
 
-<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+<div className="mt-16 mb-16 max-w-7xl mx-auto px-6">
   <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-3">
     Quick Start
   </h2>
@@ -103,13 +118,14 @@ with mlflow.start_run():
       rf = RandomForestRegressor(n_estimators=100, max_depth=6)
       rf.fit(X_train, y_train)
       ```
-      
+
       MLflow automatically logs parameters, metrics, and the trained model.
     </Step>
+
   </Steps>
 </div>
 
-<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+<div className="mt-16 mb-16 max-w-7xl mx-auto px-6">
   <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-3">
     Explore by Use Case
   </h2>
@@ -133,7 +149,7 @@ with mlflow.start_run():
   </CardGroup>
 </div>
 
-<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+<div className="mt-16 mb-16 max-w-7xl mx-auto px-6">
   <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-3">
     Key Features
   </h2>
@@ -141,139 +157,60 @@ with mlflow.start_run():
     Everything you need for production ML and AI
   </p>
 
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-    <a href="/concepts/tracking" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] overflow-hidden no-underline transition-colors">
-      <div className="p-6 bg-white dark:bg-[#1a1d27]">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-[#196d97]/10 dark:bg-[#196d97]/10 flex items-center justify-center">
-            <svg className="w-5 h-5 text-[#196d97]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Experiment Tracking</h3>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Log parameters, metrics, and artifacts. Compare runs with an interactive UI.
-        </p>
-        <div className="flex items-center text-sm text-[#196d97] group-hover:text-[#1a7aa8] dark:text-[#196d97] dark:group-hover:text-[#1a7aa8]">
-          Learn more
-          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
-      </div>
-    </a>
-
-    <a href="/genai/tracing" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] overflow-hidden no-underline transition-colors">
-      <div className="p-6 bg-white dark:bg-[#1a1d27]">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-[#196d97]/10 dark:bg-[#196d97]/10 flex items-center justify-center">
-            <svg className="w-5 h-5 text-[#196d97]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">LLM Tracing</h3>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Full observability for LLM applications. Trace internal states and debug quality issues.
-        </p>
-        <div className="flex items-center text-sm text-[#196d97] group-hover:text-[#1a7aa8] dark:text-[#196d97] dark:group-hover:text-[#1a7aa8]">
-          Learn more
-          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
-      </div>
-    </a>
-
-    <a href="/ml/model-registry" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] overflow-hidden no-underline transition-colors">
-      <div className="p-6 bg-white dark:bg-[#1a1d27]">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-[#196d97]/10 dark:bg-[#196d97]/10 flex items-center justify-center">
-            <svg className="w-5 h-5 text-[#196d97]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-            </svg>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Model Registry</h3>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Centralized model store for version control and lifecycle management.
-        </p>
-        <div className="flex items-center text-sm text-[#196d97] group-hover:text-[#1a7aa8] dark:text-[#196d97] dark:group-hover:text-[#1a7aa8]">
-          Learn more
-          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
-      </div>
-    </a>
-
-    <a href="/genai/evaluation" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] overflow-hidden no-underline transition-colors">
-      <div className="p-6 bg-white dark:bg-[#1a1d27]">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-[#196d97]/10 dark:bg-[#196d97]/10 flex items-center justify-center">
-            <svg className="w-5 h-5 text-[#196d97]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Automated Evaluation</h3>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Built-in metrics and LLM judges for evaluating models and GenAI applications.
-        </p>
-        <div className="flex items-center text-sm text-[#196d97] group-hover:text-[#1a7aa8] dark:text-[#196d97] dark:group-hover:text-[#1a7aa8]">
-          Learn more
-          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
-      </div>
-    </a>
-  </div>
+  <CardGroup cols={2}>
+    <Card title="Experiment Tracking" icon="chart-line" href="/concepts/tracking" cta="Learn more">
+      Log parameters, metrics, and artifacts. Compare runs with an interactive UI.
+    </Card>
+    <Card title="LLM Tracing" icon="eye" href="/genai/tracing" cta="Learn more">
+      Full observability for LLM applications. Trace internal states and debug quality issues.
+    </Card>
+    <Card title="Model Registry" icon="box-archive" href="/ml/model-registry" cta="Learn more">
+      Centralized model store for version control and lifecycle management.
+    </Card>
+    <Card title="Automated Evaluation" icon="circle-check" href="/genai/evaluation" cta="Learn more">
+      Built-in metrics and LLM judges for evaluating models and GenAI applications.
+    </Card>
+  </CardGroup>
 </div>
 
-<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
-  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-8">
+<div className="mt-16 mb-16 max-w-7xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-3">
     Popular Integrations
   </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Start with the frameworks and platforms you already use.
+  </p>
 
-  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <a href="/integrations/openai" className="group flex flex-col items-center justify-center p-6 rounded-xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] bg-white dark:bg-[#1a1d27] transition-colors no-underline">
-      <div className="text-2xl mb-2">🤖</div>
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">OpenAI</div>
-    </a>
-    <a href="/integrations/langchain" className="group flex flex-col items-center justify-center p-6 rounded-xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] bg-white dark:bg-[#1a1d27] transition-colors no-underline">
-      <div className="text-2xl mb-2">🦜</div>
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">LangChain</div>
-    </a>
-    <a href="/integrations/pytorch" className="group flex flex-col items-center justify-center p-6 rounded-xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] bg-white dark:bg-[#1a1d27] transition-colors no-underline">
-      <div className="text-2xl mb-2">🔥</div>
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">PyTorch</div>
-    </a>
-    <a href="/integrations/tensorflow" className="group flex flex-col items-center justify-center p-6 rounded-xl border border-gray-200 dark:border-[#27272a] hover:border-[#196d97] dark:hover:border-[#196d97] bg-white dark:bg-[#1a1d27] transition-colors no-underline">
-      <div className="text-2xl mb-2">🧮</div>
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">TensorFlow</div>
-    </a>
-  </div>
+  <CardGroup cols={2}>
+    <Card title="OpenAI" icon="robot" href="/integrations/openai" cta="Explore integration">
+      Build with OpenAI models while tracking prompts, traces, and evaluations in MLflow.
+    </Card>
+    <Card title="LangChain" icon="link" href="/integrations/langchain" cta="Explore integration">
+      Connect LangChain workflows to MLflow for observability, evaluation, and experiment tracking.
+    </Card>
+    <Card title="PyTorch" icon="fire" href="/integrations/pytorch" cta="Explore integration">
+      Log training runs, metrics, and models from your PyTorch workflows.
+    </Card>
+    <Card title="TensorFlow" icon="microchip" href="/integrations/tensorflow" cta="Explore integration">
+      Track TensorFlow experiments and package models for reproducible deployment.
+    </Card>
+  </CardGroup>
 </div>
 
-<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+<div className="mt-20 mb-16 max-w-7xl mx-auto px-6">
   <div className="rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gradient-to-br from-[#196d97]/10 to-[#e0eff2]/10 dark:from-[#196d97]/10 dark:to-[#e0eff2]/10 p-8 md:p-12">
     <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
       Ready to get started?
     </h2>
     <p className="text-base text-gray-600 dark:text-gray-400 mb-6 max-w-2xl">
-      Install MLflow and start tracking your first experiment in minutes. Join thousands of organizations using MLflow for production ML and AI.
+      Install MLflow and start tracking your first experiment in minutes. Join
+      thousands of organizations using MLflow for production ML and AI.
     </p>
-    <a 
-      href="/quickstart" 
-      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#196d97] hover:bg-[#1a7aa8] text-white font-semibold transition-colors no-underline"
+    <a
+      href="/quickstart"
+      className="inline-flex items-center justify-center rounded-[20px] bg-white px-6 py-3 text-lg font-semibold text-[#111111] shadow-[0_8px_24px_rgba(255,255,255,0.08)] transition-all duration-200 hover:bg-[#f3d6d2] hover:text-black hover:shadow-[0_14px_32px_rgba(235,23,1,0.2)] no-underline"
     >
       Start Building
-      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
     </a>
   </div>
 </div>
